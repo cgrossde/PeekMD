@@ -86,6 +86,7 @@ export function scheduleSave(getState: () => Persisted): void {
     await store.set('activeDoc', s.activeDoc);
     await store.set('rightPaneDoc', null);
     await store.set('recentlyClosed', s.recentlyClosed);
+    await store.set('scrollPositions', s.scrollPositions);
     await store.set('ui', s.ui);
     await store.save();
   }, 500);
@@ -126,7 +127,7 @@ hydrateFromDisk: async () => {
 
 Key behaviours:
 
-- **Missing files are dropped silently.** No toast is shown for files that no longer exist. The missing path is simply omitted from `validPaths`.
+- **Missing files trigger an info toast.** If any persisted paths no longer exist, they are skipped and a one-time info toast is shown with the count (e.g. `"2 file(s) missing from last session"`). The missing path is omitted from `validPaths`.
 - **UI state is applied before docs are opened.** This prevents a visible layout shift from the defaults.
 - **`pushHistory: false` throughout restore.** `openFile` takes an optional `{ pushHistory }` option (default `true`); hydration passes `false` for every restored doc, and the final `activate` call also passes `false`. Combined with an unconditional `navBack`/`navForward` reset at the end, restoring N open docs never seeds navigation history — it starts clean every session, per the SPEC. (Earlier versions called the history-less `activate` only once at the end, but `openFile` itself always pushed history internally while opening each doc in the loop, so `navBack` ended up with `N-1` stale entries. This is now closed at both the source and with a defensive reset.)
 - **`paletteOpen` and `findOpen` are forced to `false`.** These are transient UI states that should never be open at launch even if a crash left them `true` in the store.

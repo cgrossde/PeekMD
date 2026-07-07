@@ -58,20 +58,43 @@ The close button (`×`) is visible on hover. Clicking it calls `store.close(path
 4. Calls `invoke('unwatch', { path })` to stop the file watcher for this path.
 5. Prunes the closed path from `navBack` and `navForward`.
 
-## Recently Closed section
+## Filename disambiguation
 
-Stores the last 20 closed documents, newest first. Rendered as a plain list of buttons; each shows the document title and a relative timestamp (`timeAgo` from `src/lib/timeAgo.ts`). Hovering over a row shows the full absolute path via `title` attribute.
+When two or more documents in the combined open + recently-closed pool share the same stem name, each row appends a muted qualifier after the title — for example `README (PeekMD)` vs `README (jiracli)`.
 
-Clicking a recently closed row calls `reopenRecent(path)`, which:
+**Pool**: `allPaths` is computed in `Sidebar.tsx` as the union of `openDocs` paths and `recentlyClosed` paths before any row is rendered. This means a name that is unique among currently open docs but clashes with a recently-closed entry is still disambiguated.
 
-1. Calls `openFile(path)`.
-2. `openFile` unconditionally strips the path from `recentlyClosed` at the start of every open — so the entry disappears whether the file is opened via the recently-closed list, a CLI argument, drag-drop, Open With, or the Command Palette.
-3. If the file no longer exists on disk, the `render_markdown` invocation throws; the error is surfaced via `lastError` and the entry is not re-added.
-4. When the user later closes the document again, `close` prepends a fresh `RecentEntry` (updated `closedAt` timestamp) to `recentlyClosed`.
+**Algorithm** (`disambiguator()` in `src/lib/paths.ts`):
 
-Reopened docs are placed at the end of `openDocs` (same as any newly opened file), not at their original position.
+1. Extract the stem of the target path (`stemName`).
+2. Collect every other path in `allPaths` that shares the same stem. If none, return `null` — no qualifier is shown.
+3. Walk up parent directory segments one level at a time (depth 1, 2, …) and build a suffix from those trailing segments.
+4. Return the first suffix that is unique among all paths sharing the same stem, wrapped in parentheses.
 
-The section is hidden when `recentlyClosed` is empty.
+If two files share an identical full path, the loop caps at the total parent-segment count to avoid infinite recursion and returns whatever suffix it reached.
+
+**Rendering**: The qualifier is rendered as a `<span className="peekmd-sidebar-qualifier">` immediately after the title text, in both `SidebarRow` (open docs) and the recently-closed list in `Sidebar.tsx`. The qualifier span is styled at opacity 0.45, font-size 11px, and is not shown at all when `disambiguator()` returns `null`.
+
+## Resizable sidebar
+
+The sidebar width is controlled by the CSS custom property `--sidebar-width` set on the `.peekmd-main-area` element. The layout reads this variable to split the viewport between the sidebar and the content pane without React re-renders on every drag frame.
+
+**Drag handle**: A 6 px-wide `<div className="peekmd-sidebar-resize-handle">` sits on the right edge of the sidebar. Its `onMouseDown` prop is wired to the `onMouseDown` handler returned by `useSidebarResize`.
+
+**`useSidebarResize` hook** (`src/lib/sidebarResize.ts`):
+
+- Takes a `React.RefObject<HTMLDivElement | null>` pointing at the `.peekmd-main-area` element.
+- On mount, reads the persisted width from `localStorage` (key `peekmd-sidebar-width`) and applies it immediately via `areaRef.current.style.setProperty('--sidebar-width', …)`.
+- On `mousedown`, records the cursor start position and current width, sets `cursor: col-resize` and `user-select: none` on `document.body`, then attaches `mousemove` and `mouseup` listeners directly to `document`.
+- On each `mousemove`, recomputes `clamp(startW + dx)` and writes the result straight to the CSS custom property — no `setState`, no React re-render.
+- On `mouseup`, restores `document.body` styles, removes the listeners, and persists the final width to `localStorage`.
+
+| Constant | Value |
+| --- | --- |
+| Default width | 240 px |
+| Minimum width | 140 px |
+| Maximum width | 480 px |
+| `localStorage` key | `peekmd-sidebar-width` |
 
 ## Right-click context menu
 
@@ -101,3 +124,5 @@ This indirection exists because Tauri's `popup()` API requires a `Window` refere
 | Reveal in Finder | Rust (`reveal_in_finder` via `tauri-plugin-opener`) |
 | Copy Path | Rust (`copy_path` via `tauri-plugin-clipboard-manager`) |
 | Copy as HTML | Rust (`copy_html` via `tauri-plugin-clipboard-manager`) |
+| Filename disambiguation | Frontend (`disambiguator()` in `src/lib/paths.ts`) |
+| Sidebar resize | Frontend (`useSidebarResize` hook, `localStorage` persistence) |

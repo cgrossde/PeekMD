@@ -18,6 +18,7 @@ bun run build            # TS typecheck + Vite production build
 bun run check-offline    # verify no CDN refs in bundle
 cargo check              # (from src-tauri/) Rust typecheck
 bash scripts/release-unsigned.sh   # build unsigned DMG
+bash scripts/install-skill.sh      # install agent skill into ~/.claude/skills/
 
 bun run test             # frontend unit tests (vitest)
 cargo test               # (from src-tauri/) Rust unit tests
@@ -35,13 +36,33 @@ bunx playwright test --project=tauri
 ## Phases
 
 - **Phase 1** ✅ — single file open, GFM render, light/dark theme, CLI arg / ⌘O / drag-drop, DMG
-- **Phase 2** ✅ — file watcher, scroll-to-change, syntax highlighting (syntect), store persistence, multi-doc sidebar, recently closed, command palette, find bar, TOC, navigation history, Mermaid, drag-to-detach
+- **Phase 2** ✅ — file watcher, scroll-to-change, syntax highlighting (syntect), store persistence, multi-doc sidebar, recently closed, command palette, find bar, TOC, navigation history, Mermaid, drag-to-detach, document link navigation, agent skill
 - **Phase 3** — accessibility pass, performance benchmarks, app icon, notarized signed DMG, CI
+
+## Documentation
+
+Full feature docs live in `docs/`. Key files:
+
+| Topic | File |
+| --- | --- |
+| Keyboard shortcuts | `docs/keyboard-shortcuts.md` |
+| Sidebar (resize, disambiguation, context menu) | `docs/sidebar.md` |
+| Live reload and scroll-to-change | `docs/live-reload.md` |
+| Session persistence | `docs/persistence.md` |
+| Command palette | `docs/command-palette.md` |
+| Find in document | `docs/find.md` |
+| Table of contents | `docs/toc.md` |
+| Navigation history and document links | `docs/navigation.md` |
+| Mermaid diagrams | `docs/mermaid.md` |
+| Light / dark theme | `docs/theme.md` |
+| Agent skill (peekmd-cli) | `docs/agent-skill.md` |
+| Markdown rendering (comrak, RenderedDoc) | `docs/rendering.md` |
+| IPC surface — commands, events, capabilities | `docs/ipc.md` |
 
 ## Skills and CLI
 
 `.claude/skills/debug/` — screenshots, JS eval, DOM inspection via `tauri-plugin-playwright` socket.
-Requires dev build.
+Requires dev build. See skill for usage.
 
 `.claude/skills/peekmd/` (also symlinked as `marked`) — agent skill for opening and querying PeekMD.
 Uses `peekmd-cli` binary:
@@ -51,8 +72,14 @@ Uses `peekmd-cli` binary:
 /Applications/PeekMD.app/Contents/MacOS/peekmd-cli list   # query open/recent docs
 /Applications/PeekMD.app/Contents/MacOS/peekmd-cli open /path/to/file.md
 
-# Dev build fallback:
-~/dev/PeekMD/src-tauri/target/release/peekmd-cli list
+# Dev build fallback (binary built alongside main app):
+src-tauri/target/release/peekmd-cli list
+```
+
+Install or update the skill symlinks:
+
+```bash
+bash scripts/install-skill.sh
 ```
 
 ## Privacy

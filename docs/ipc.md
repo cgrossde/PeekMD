@@ -14,11 +14,17 @@ Frontend invocations use `invoke` from `@tauri-apps/api/core`.
 | `take_pending_paths` | — | `Vec<PathBuf>` | Drain the `PendingPaths` state (CLI args / macOS Open With) collected before the webview loaded. Called once on mount as a fallback to the `peekmd://open-files` event. |
 | `watch_paths` | `paths: Vec<PathBuf>` | `Result<(), String>` | Register paths with `WatcherState`. Watches each path's parent directory with `NonRecursive` mode. |
 | `unwatch` | `path: PathBuf` | `Result<(), String>` | Unregister a path from `WatcherState`. Unwatches the parent directory when ref count reaches zero. |
+| `watch_images` | `md: PathBuf, images: Vec<PathBuf>` | `Result<(), String>` | Register local images referenced by a Markdown doc. When any image changes on disk a `file-changed` event is emitted for the owning `md` path, triggering a re-render so the new image bytes are picked up. |
+| `unwatch_images` | `md: PathBuf` | `Result<(), String>` | Unregister all images associated with a Markdown doc. Called on close. |
 | `reveal_in_finder` | `path: PathBuf` | `Result<(), String>` | Calls `tauri-plugin-opener`'s `reveal_item_in_dir`. |
 | `copy_path` | `path: String` | `Result<(), String>` | Writes plain text to clipboard via `tauri-plugin-clipboard-manager`. |
 | `copy_html` | `html: String` | `Result<(), String>` | Writes HTML to clipboard. Uses `ClipboardExt::write_html(&html, Some(&html))` — both the HTML representation and the plain-text fallback are set to the same string. |
 | `resolve_md_link` | `base: PathBuf, href: String` | `Option<PathBuf>` | Resolve a relative or absolute `.md` link against `base`. Strips `file://` prefix and URL fragments. Returns `None` for non-Markdown targets or paths that do not exist. |
 | `show_sidebar_context_menu` | `path: String, _x: f64, _y: f64` | `Result<(), String>` | Pops a native context menu. Stores `path` in `ContextMenuTarget` before calling `menu.popup()`. Menu selections are delivered via the `sidebar-menu-click` event. |
+| `spawn_detached_window` | `path: String, screen_x: f64, screen_y: f64` | `Result<(), String>` | Spawns a new Tauri window (`doc-<uuid>`) showing a single document with the sidebar hidden. Positioned near the given screen coordinates. Used when a sidebar row is dragged outside the app window bounds. |
+| `backup_state_file` | — | `Result<(), String>` | Copies `state.json` to `state.json.bak` and removes the original. Called by `loadState` in `persistence.ts` when the stored schema version does not match `CURRENT_VERSION`. |
+| `skill_install_status` | — | `SkillStatus` | Detects installed AI coding agents (`claude`, `omp`, `opencode`) by probing `PATH` and known fallback install paths. Returns `{ agent_detected: bool, skill_installed: bool, agents: [{ name, binary }] }`. Does not require the app to be running. |
+| `install_agent_skill` | — | `Result<String, String>` | Symlinks the bundled `skills/peekmd/` directory into `~/.claude/skills/peekmd` and `~/.claude/skills/marked`. Returns a success message or an error string. Idempotent — replaces stale symlinks. |
 
 ### RenderedDoc shape
 
@@ -119,4 +125,4 @@ There is no `fs:*` permission and `tauri-plugin-fs` is not registered — every 
 
 `show_sidebar_context_menu` calls `app.get_webview_window("main")` to obtain the window handle for `popup()`. This is a stable Tauri 2 API (`Manager::get_webview_window`), not an unstable private API. The `popup(win.as_ref().window().clone())` call dereferences the `WebviewWindow` to its underlying `Window` — a supported pattern in Tauri 2.
 
-No `macos-private-api` is required for Phase 2. If Phase 3 implements drag-out-to-new-window using `window.screenX/screenY` outside-bounds detection, that path may require `macos-private-api` for drag image customisation on macOS.
+Drag-out-to-new-window is implemented via `spawn_detached_window`. It requires no `macos-private-api`. Outside-bounds detection uses standard `screenX`/`screenY` values read from the drag event in the frontend; when those coordinates fall outside the app window the command is invoked to open a new detached window at that position.
