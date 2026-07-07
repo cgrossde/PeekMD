@@ -32,6 +32,23 @@ Built on [Tauri v2](https://tauri.app) + [React 19](https://react.dev) + [comrak
 
 ## Install
 
+### Homebrew (recommended)
+
+```sh
+brew tap cgrossde/homebrew
+brew install --cask peekmd
+```
+
+After install:
+- `open -a PeekMD /path/to/file.md` or double-click any `.md` file.
+- `peekmd-cli list` / `peekmd-cli open <path>` are available on `PATH` (used by the PeekMD agent skill).
+
+The cask installs an unsigned build and clears the Gatekeeper quarantine automatically. If macOS still blocks it, run:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/PeekMD.app
+```
+
 ### Download DMG
 
 Download the latest `.dmg` from [Releases](../../releases), drag **PeekMD.app** to `/Applications`.
@@ -40,12 +57,6 @@ Download the latest `.dmg` from [Releases](../../releases), drag **PeekMD.app** 
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/PeekMD.app
-```
-
-### Homebrew *(coming soon)*
-
-```sh
-brew install --cask peekmd
 ```
 
 ## Open a file
@@ -89,6 +100,15 @@ bun run tauri dev -- -- /path/to/file.md
 
 # Production DMG (unsigned)
 bash scripts/release-unsigned.sh
+```
+
+## Cut a release
+
+Bump versions, commit, tag, and push — the [release workflow](.github/workflows/release.yml) builds the DMG, publishes a GitHub Release, and updates the Homebrew cask automatically:
+
+```sh
+bash scripts/release-tag.sh 0.1.1   # bumps Cargo.toml, tauri.conf.json, package.json
+git push && git push --tags          # triggers CI → DMG → GitHub Release → tap update
 ```
 
 ## Run tests

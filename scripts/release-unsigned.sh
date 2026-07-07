@@ -11,14 +11,27 @@ esac
 # Compile-only first to surface release-profile errors fast
 cargo tauri build --no-bundle
 
-# Bundle without signing — bundler skips signing when no identity/cert env is present
-cargo tauri build
+# Bundle .app only (no DMG yet) — we need to patch the .app before DMG-ing
+cargo tauri build --bundles app
 
-APP="src-tauri/target/release/bundle/macos/PeekMD.app"
+APP_DIR="src-tauri/target/release/bundle/macos/PeekMD.app"
+APP_MACOS="$APP_DIR/Contents/MacOS"
+
+# Copy the peekmd-cli helper binary into the app bundle so the skill can find it
+# at a stable path. Tauri only bundles the primary binary; extras need manual placement.
+cp "src-tauri/target/release/peekmd-cli" "$APP_MACOS/peekmd-cli"
+chmod +x "$APP_MACOS/peekmd-cli"
+
+# Drop stray build helpers Cargo leaks into target/release that get picked up.
+rm -f "$APP_MACOS/gen_syntect_css"
+
+# Now build the DMG with the patched .app
+cargo tauri build --bundles dmg
+
 DMG=$(ls -t src-tauri/target/release/bundle/dmg/PeekMD_*.dmg 2>/dev/null | head -1 || true)
 
 echo
-echo "✓ Built (unsigned): $APP"
+echo "✓ Built (unsigned): $APP_DIR"
 [ -n "$DMG" ] && echo "✓ DMG: $DMG"
 echo
 echo "First-run notes for users:"

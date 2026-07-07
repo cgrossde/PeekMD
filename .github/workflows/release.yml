@@ -1,0 +1,87 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Install frontend deps
+        run: bun install --frozen-lockfile
+
+      - name: Extract version from tag
+        id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag matches Cargo/Tauri version
+        run: |
+          set -e
+          TAG="${{ steps.v.outputs.version }}"
+          CARGO_V=$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)
+          TAURI_V=$(python3 -c "import json;print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
+          PKG_V=$(python3 -c "import json;print(json.load(open('package.json'))['version'])")
+          for V in "$CARGO_V" "$TAURI_V" "$PKG_V"; do
+            if [ "$V" != "$TAG" ]; then
+              echo "Version mismatch: tag=v$TAG but found $V" >&2; exit 1
+            fi
+          done
+
+      - name: Build unsigned DMG
+        run: bash scripts/release-unsigned.sh
+
+      - name: Locate DMG and compute checksum
+        id: dmg
+        run: |
+          set -e
+          DMG=$(ls src-tauri/target/release/bundle/dmg/PeekMD_*_aarch64.dmg | head -1)
+          echo "path=$DMG" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(shasum -a 256 "$DMG" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ steps.v.outputs.version }}" \
+            "${{ steps.dmg.outputs.path }}" \
+            --title "v${{ steps.v.outputs.version }}" \
+            --generate-notes
+
+      - name: Update homebrew-tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.v.outputs.version }}
+          SHA256: ${{ steps.dmg.outputs.sha256 }}
+        run: |
+          set -e
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/cgrossde/homebrew-tap.git" tap
+          sed -e "s/__VERSION__/${VERSION}/g" \
+              -e "s/__SHA256__/${SHA256}/g" \
+              scripts/cask-template.rb.tmpl > tap/Casks/peekmd.rb
+          cd tap
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/peekmd.rb
+          git commit -m "peekmd: v${VERSION}"
+          git push origin main

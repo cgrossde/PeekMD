@@ -22,19 +22,18 @@ Do NOT use when:
 
 ## CLI tool
 
-`peekmd-cli` is a headless binary shipped inside the app bundle. In development it lives at:
+`peekmd-cli` is a headless binary shipped alongside the app. On a Homebrew install it's on `PATH` at `/opt/homebrew/bin/peekmd-cli` (Apple Silicon) — invoke it as bare `peekmd-cli`. It's a symlink into the app bundle:
 
 ```
-~/dev/PeekMD/src-tauri/target/release/peekmd-cli
+/opt/homebrew/bin/peekmd-cli → /Applications/PeekMD.app/Contents/MacOS/peekmd-cli
 ```
 
-Once the app is installed at `/Applications/PeekMD.app`:
+Development builds don't install to `/Applications`; the binary lives at `~/dev/PeekMD/src-tauri/target/release/peekmd-cli` (or wherever the repo is cloned).
 
-```
-/Applications/PeekMD.app/Contents/MacOS/peekmd-cli
-```
-
-Prefer the installed path; fall back to the dev path if the installed app is absent.
+Resolution order:
+1. `command -v peekmd-cli` → use that.
+2. `/Applications/PeekMD.app/Contents/MacOS/peekmd-cli` (Homebrew install without shell rehash, or manual DMG install).
+3. `$(git rev-parse --show-toplevel 2>/dev/null)/src-tauri/target/release/peekmd-cli` (dev fallback — only when running from within the PeekMD repo).
 
 ## Subcommands
 
@@ -96,14 +95,15 @@ User asks to open / view a .md file
 ## Bash usage pattern
 
 ```bash
-CLI_INSTALLED=/Applications/PeekMD.app/Contents/MacOS/peekmd-cli
-CLI_DEV=~/dev/PeekMD/src-tauri/target/release/peekmd-cli
-CLI=$([ -x "$CLI_INSTALLED" ] && echo "$CLI_INSTALLED" || echo "$CLI_DEV")
+# Prefer PATH; fall back to installed app; final fallback dev build.
+CLI="$(command -v peekmd-cli || true)"
+[ -z "$CLI" ] && [ -x "/Applications/PeekMD.app/Contents/MacOS/peekmd-cli" ] && \
+  CLI="/Applications/PeekMD.app/Contents/MacOS/peekmd-cli"
+[ -z "$CLI" ] && [ -x "$HOME/dev/PeekMD/src-tauri/target/release/peekmd-cli" ] && \
+  CLI="$HOME/dev/PeekMD/src-tauri/target/release/peekmd-cli"
+[ -z "$CLI" ] && { echo "peekmd-cli not found" >&2; exit 1; }
 
-# Query state
 "$CLI" list
-
-# Open a file (always use absolute path)
 "$CLI" open "/abs/path/to/file.md"
 ```
 
