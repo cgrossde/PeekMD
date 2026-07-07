@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    Apple macOS app icon (1024×1024) — DEV variant.
+    Identical to app-icon.svg but with a light-blue background (#bfdbfe)
+    to visually distinguish dev builds from production.
+  -->
+
+  <!-- Background squircle (light blue) — translated to (100,100) for the safe area -->
+  <g transform="translate(100 100)">
+    <path fill="#bfdbfe" d="M 526.4 0 c 104.1698 0 156.2546 0 196.0422 20.2728 a 186.0000 186.0000 0 0 1 81.2850 81.2850 c 20.2728 39.7876 20.2728 91.8725 20.2728 196.0422 L 824 526.4 c 0 104.1698 0 156.2546 -20.2728 196.0422 a 186.0000 186.0000 0 0 1 -81.2850 81.2850 c -39.7876 20.2728 -91.8725 20.2728 -196.0422 20.2728 L 297.6 824 c -104.1698 0 -156.2546 0 -196.0422 -20.2728 a 186.0000 186.0000 0 0 1 -81.2850 -81.2850 c -20.2728 -39.7876 -20.2728 -91.8725 -20.2728 -196.0422 L 0 297.6 c 0 -104.1698 0 -156.2546 20.2728 -196.0422 a 186.0000 186.0000 0 0 1 81.2850 -81.2850 c 39.7876 -20.2728 91.8725 -20.2728 196.0422 -20.2728 Z"/>
+
+    <!--
+      Diagonal slit, centered, with comfortable inset.
+      Endpoints sit at (130, 694) → (694, 130) inside the 824×824 box.
+    -->
+    <line x1="130" y1="694" x2="694" y2="130"
+          stroke="#2553d8" stroke-width="86" stroke-linecap="round"/>
+  </g>
+</svg>

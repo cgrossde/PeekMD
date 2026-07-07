@@ -1,0 +1,1168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PeekMD — Mock</title>
+
+<!-- Vendored offline assets — the real Tauri app ships these locally too -->
+<link rel="stylesheet" href="vendor/github-markdown.css">
+<link id="hljs-light" rel="stylesheet" href="vendor/github.min.css">
+<link id="hljs-dark"  rel="stylesheet" href="vendor/github-dark.min.css" disabled>
+<script src="vendor/highlight.min.js"></script>
+
+<style>
+  /* ---------- Shell ---------- */
+  :root {
+    --sidebar-w: 260px;
+    --topbar-h: 40px;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+
+    --bg-app: #f6f8fa;
+    --bg-side: #ffffff;
+    --bg-top: rgba(255,255,255,0.72);
+    --border: #d0d7de;
+    --border-soft: #e6e8eb;
+    --text: #1f2328;
+    --text-mute: #656d76;
+    --accent: #0969da;
+    --accent-soft: #ddf4ff;
+    --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(140,149,159,0.15);
+  }
+
+  [data-theme="dark"] {
+    --bg-app: #0d1117;
+    --bg-side: #010409;
+    --bg-top: rgba(13,17,23,0.72);
+    --border: #30363d;
+    --border-soft: #21262d;
+    --text: #e6edf3;
+    --text-mute: #7d8590;
+    --accent: #2f81f7;
+    --accent-soft: #0c2d6b;
+    --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.4);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: var(--font-ui);
+    background: var(--bg-app);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* Simulated titlebar for the mock (Tauri window would provide this) */
+  .titlebar {
+    height: 28px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    background: transparent;
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+  .traffic { display: flex; gap: 8px; }
+  .traffic i {
+    width: 12px; height: 12px; border-radius: 50%; display: inline-block;
+    background: #ff5f57; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,.15);
+  }
+  .traffic i:nth-child(2) { background: #febc2e; }
+  .traffic i:nth-child(3) { background: #28c840; }
+  .titlebar .title {
+    flex: 1; text-align: center; font-size: 12px; color: var(--text-mute);
+    letter-spacing: 0.1px;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    height: calc(100vh - 28px);
+  }
+  .layout.sidebar-hidden { grid-template-columns: 0 1fr; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    background: var(--bg-side);
+    border-right: 1px solid var(--border-soft);
+    display: flex; flex-direction: column;
+    min-width: 0; overflow: hidden;
+    transition: width .18s ease;
+  }
+  .layout.sidebar-hidden .sidebar { width: 0; }
+
+  .sidebar-header {
+    padding: 10px 12px 8px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; font-weight: 600; color: var(--text-mute);
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .sidebar-header button {
+    background: transparent; border: 0; color: var(--text-mute);
+    cursor: pointer; padding: 2px 6px; border-radius: 4px;
+    font-size: 14px;
+  }
+  .sidebar-header button:hover { background: var(--border-soft); color: var(--text); }
+
+  .doc-list { flex: 1; overflow-y: auto; padding: 4px 6px 12px; }
+
+  .doc-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; margin: 1px 0;
+    border-radius: 6px; cursor: pointer;
+    font-size: 13px; color: var(--text);
+    position: relative;
+  }
+  .doc-item:hover { background: var(--border-soft); }
+  .doc-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+  .doc-item .icon { width: 14px; height: 14px; flex: none; opacity: .7; }
+  .doc-item .name {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .doc-item .dirty {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); flex: none; opacity: 0;
+  }
+  .doc-item.dirty .dirty { opacity: 1; }
+  .doc-item .close {
+    width: 16px; height: 16px; border-radius: 4px;
+    display: none; align-items: center; justify-content: center;
+    color: var(--text-mute); font-size: 13px; line-height: 1;
+  }
+  .doc-item:hover .close { display: inline-flex; }
+  .doc-item.dirty:hover .dirty { display: none; }
+  .doc-item .close:hover { background: rgba(0,0,0,0.08); color: var(--text); }
+  [data-theme="dark"] .doc-item .close:hover { background: rgba(255,255,255,0.08); }
+
+  .doc-item .path {
+    display: block; font-size: 11px; color: var(--text-mute);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .doc-item.active .path { color: var(--accent); opacity: 0.75; }
+
+  .sidebar-section {
+    border-top: 1px solid var(--border-soft);
+    padding: 8px 6px 6px;
+  }
+  .sidebar-section .sidebar-header { padding: 2px 6px 4px; }
+  .sidebar-section .list { max-height: 200px; overflow-y: auto; }
+  .recent-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; margin: 1px 0;
+    border-radius: 6px; cursor: pointer;
+    font-size: 12.5px; color: var(--text-mute);
+  }
+  .recent-item:hover { background: var(--border-soft); color: var(--text); }
+  .recent-item .icon { width: 12px; height: 12px; flex: none; opacity: .6; }
+  .recent-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .recent-item .when { font-size: 10.5px; color: var(--text-mute); flex: none; }
+  .recent-empty { padding: 6px 10px; font-size: 11.5px; color: var(--text-mute); font-style: italic; }
+
+  /* Split icon in doc rows (hover reveal) */
+  .doc-item .split-btn {
+    width: 18px; height: 18px; border-radius: 4px;
+    display: none; align-items: center; justify-content: center;
+    color: var(--text-mute); flex: none;
+    background: transparent; border: 0; cursor: pointer;
+    padding: 0;
+  }
+  .doc-item:hover .split-btn { display: inline-flex; }
+  .doc-item .split-btn:hover { background: rgba(0,0,0,0.08); color: var(--text); }
+  [data-theme="dark"] .doc-item .split-btn:hover { background: rgba(255,255,255,0.08); }
+  .doc-item .split-btn svg { width: 12px; height: 12px; }
+  .doc-item.pinned-right .split-btn { display: inline-flex; color: var(--accent); }
+  .doc-item.pinned-right .split-btn svg .fill-half { fill: currentColor; }
+
+  /* Future feature label */
+  .sidebar-section.future .sidebar-header .label-wrap {
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .future-badge {
+    display: inline-block; padding: 1px 6px;
+    background: linear-gradient(135deg, #ffd54f 0%, #ffb300 100%);
+    color: #3b2f00; font-size: 9px; font-weight: 700;
+    letter-spacing: .05em; border-radius: 3px;
+    text-transform: uppercase;
+  }
+  .sidebar-section.future { opacity: 0.85; }
+  .sidebar-section.future .doc-item {
+    background: repeating-linear-gradient(
+      -45deg,
+      transparent, transparent 6px,
+      rgba(255, 179, 0, 0.05) 6px, rgba(255, 179, 0, 0.05) 12px
+    );
+  }
+
+  .sidebar-footer {
+    padding: 8px 10px; border-top: 1px solid var(--border-soft);
+    font-size: 11px; color: var(--text-mute);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sidebar-footer .drop-hint {
+    padding: 8px; border: 1px dashed var(--border);
+    border-radius: 6px; width: 100%; text-align: center;
+    color: var(--text-mute); font-size: 11px;
+  }
+
+  /* ---------- Main pane ---------- */
+  .main {
+    display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    height: 100%;
+    background: var(--bg-app);
+  }
+
+  .topbar {
+    height: var(--topbar-h);
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 12px;
+    background: var(--bg-top);
+    backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 12px; color: var(--text-mute);
+  }
+  .topbar .toggle {
+    background: transparent; border: 0; color: var(--text-mute);
+    cursor: pointer; padding: 4px 6px; border-radius: 5px;
+  }
+  .topbar .toggle:hover { background: var(--border-soft); color: var(--text); }
+  .topbar .breadcrumb { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar .breadcrumb .name { color: var(--text); font-weight: 500; }
+  .topbar .actions { display: flex; gap: 2px; }
+  .topbar .actions button {
+    background: transparent; border: 0; color: var(--text-mute);
+    cursor: pointer; padding: 4px 8px; border-radius: 5px;
+    font-size: 12px;
+  }
+  .topbar .actions button:hover { background: var(--border-soft); color: var(--text); }
+  .topbar .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #1a7f37; box-shadow: 0 0 0 3px rgba(26,127,55,0.12);
+  }
+
+  /* ---------- Content ---------- */
+  .content {
+    flex: 1; overflow: hidden; position: relative;
+  }
+  .panes {
+    display: grid;
+    grid-template-columns: 1fr;
+    height: 100%;
+    transition: grid-template-columns .18s ease;
+  }
+  .panes.split { grid-template-columns: 1fr 1px 1fr; }
+  .pane {
+    display: flex; flex-direction: column;
+    min-width: 0; min-height: 0;
+    background: var(--bg-app);
+  }
+  .pane + .pane { border-left: 1px solid var(--border-soft); }
+  .pane-head {
+    display: none;
+    align-items: center; justify-content: space-between;
+    padding: 6px 12px; height: 32px;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 12px; color: var(--text-mute);
+    background: var(--bg-top);
+  }
+  .panes.split .pane-head { display: flex; }
+  .pane-name { font-weight: 500; color: var(--text); }
+  .pane-actions { display: flex; gap: 2px; }
+  .pane-btn {
+    background: transparent; border: 0; color: var(--text-mute);
+    cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 12px;
+  }
+  .pane-btn:hover { background: var(--border-soft); color: var(--text); }
+  .pane-body {
+    flex: 1; overflow-y: auto; padding: 40px 0 80px;
+    scroll-behavior: smooth;
+  }
+  .markdown-body {
+    box-sizing: border-box;
+    min-width: 200px;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 48px;
+    background: transparent;
+    font-size: 15px;
+  }
+  .panes.split .markdown-body { padding: 0 32px; font-size: 14px; }
+  [data-theme="dark"] .markdown-body { color-scheme: dark; }
+
+  /* Highlight for change scroll-to indicator */
+  .change-flash {
+    animation: flash 1.6s ease-out 1;
+  }
+  @keyframes flash {
+    0%   { background: rgba(255, 213, 79, 0.55); }
+    100% { background: transparent; }
+  }
+
+  /* Empty state */
+  .empty {
+    display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    flex: 1; color: var(--text-mute); gap: 12px;
+  }
+  .empty h2 { margin: 0; font-weight: 500; color: var(--text); }
+  .empty .drop {
+    padding: 32px 48px; border: 2px dashed var(--border); border-radius: 12px;
+    text-align: center;
+  }
+
+  /* ---------- Command palette ---------- */
+  .palette-scrim {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+    display: none; align-items: flex-start; justify-content: center;
+    padding-top: 15vh; z-index: 100;
+  }
+  .palette-scrim.open { display: flex; }
+  .palette {
+    width: 560px; max-width: 90vw; background: var(--bg-side);
+    border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .palette input {
+    width: 100%; border: 0; padding: 14px 16px; font-size: 15px;
+    background: transparent; color: var(--text); outline: none;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .palette .results { max-height: 320px; overflow-y: auto; padding: 6px; }
+  .palette .row {
+    padding: 8px 10px; border-radius: 6px; font-size: 13px;
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+  }
+  .palette .row:hover, .palette .row.selected { background: var(--accent-soft); color: var(--accent); }
+  .palette .row .hint { margin-left: auto; font-size: 11px; color: var(--text-mute); }
+
+  /* ---------- Toast ---------- */
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--text); color: var(--bg-app);
+    padding: 8px 14px; border-radius: 8px; font-size: 12px;
+    box-shadow: var(--shadow); opacity: 0; pointer-events: none;
+    transition: opacity .2s ease;
+    z-index: 200;
+  }
+  .toast.show { opacity: 1; }
+
+  /* Table of contents overlay (right rail) */
+  .toc {
+    position: absolute; right: 32px; top: 80px; width: 200px;
+    font-size: 12px; color: var(--text-mute);
+    display: none;
+  }
+  @media (min-width: 1200px) { .toc { display: block; } }
+  .toc.hidden { display: none !important; }
+  .toc-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .toc-head .label {
+    font-weight: 600; color: var(--text);
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  }
+  .toc-head .close {
+    background: transparent; border: 0; color: var(--text-mute);
+    cursor: pointer; padding: 0 4px; font-size: 14px; line-height: 1;
+    border-radius: 4px;
+  }
+  .toc-head .close:hover { background: var(--border-soft); color: var(--text); }
+  .toc a {
+    display: block; padding: 3px 8px; border-left: 2px solid transparent;
+    color: var(--text-mute); text-decoration: none;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .toc a:hover { color: var(--text); }
+  .toc a.active { color: var(--accent); border-left-color: var(--accent); }
+  .toc a.h3 { padding-left: 20px; font-size: 11.5px; }
+
+  /* "TOC" show button in the topbar, visible only when hidden */
+  .toc-show { display: none; }
+  .toc-hidden .toc-show { display: inline-block; }
+
+  /* Ghost image and detached-window frame */
+  .detached-stage {
+    position: fixed; inset: 0; pointer-events: none;
+    z-index: 300;
+  }
+  .detached-win {
+    position: absolute; width: 640px; height: 420px;
+    background: var(--bg-app); color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow);
+    overflow: hidden; pointer-events: auto;
+    display: flex; flex-direction: column;
+    animation: pop .18s ease-out;
+  }
+  @keyframes pop {
+    from { transform: scale(.96); opacity: 0; }
+    to   { transform: scale(1);    opacity: 1; }
+  }
+  .detached-win .bar {
+    height: 30px; display: flex; align-items: center; gap: 8px;
+    padding: 0 10px; background: var(--bg-top);
+    border-bottom: 1px solid var(--border-soft);
+    cursor: move; user-select: none;
+  }
+  .detached-win .bar .traffic i { width: 10px; height: 10px; }
+  .detached-win .bar .title {
+    flex: 1; font-size: 11.5px; color: var(--text-mute); text-align: center;
+  }
+  .detached-win .bar .close-w {
+    background: transparent; border: 0; color: var(--text-mute);
+    cursor: pointer; font-size: 15px; line-height: 1; padding: 0 4px;
+    border-radius: 4px;
+  }
+  .detached-win .bar .close-w:hover { background: var(--border-soft); color: var(--text); }
+  .detached-win .body {
+    flex: 1; overflow-y: auto; padding: 24px 0;
+  }
+  .detached-win .body .markdown-body {
+    max-width: 100%; padding: 0 32px;
+  }
+
+  /* Drop hint on the main content while dragging out */
+  .drag-ghost {
+    position: fixed; top: 0; left: 0; pointer-events: none;
+    padding: 6px 10px; border-radius: 6px;
+    background: var(--bg-side); border: 1px solid var(--border);
+    box-shadow: var(--shadow); font-size: 12px; color: var(--text);
+    z-index: 400;
+  }
+  .dragging-out .main::after {
+    content: "Drop outside the sidebar to open in a new window";
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 10px 16px; border-radius: 8px;
+    background: var(--accent); color: white;
+    font-size: 12px; font-weight: 500;
+    box-shadow: var(--shadow);
+    z-index: 50;
+  }
+</style>
+</head>
+<body data-theme="light">
+
+<div class="titlebar">
+  <div class="traffic"><i></i><i></i><i></i></div>
+  <div class="title" id="title">PeekMD — SPEC.md</div>
+  <div style="width: 52px"></div>
+</div>
+
+<div class="layout" id="layout">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span>Open Documents</span>
+      <button title="Open file (⌘O)" onclick="toast('File → Open (⌘O)')">＋</button>
+    </div>
+    <div class="doc-list" id="doc-list">
+      <!-- populated by JS -->
+    </div>
+
+    <div class="sidebar-section" id="recent-section">
+      <div class="sidebar-header">
+        <span>Recently Closed</span>
+        <button id="recent-clear" title="Clear list" onclick="clearRecent()">✕</button>
+      </div>
+      <div class="list" id="recent-list"><!-- populated by JS --></div>
+    </div>
+
+    <div class="sidebar-section future" id="future-section">
+      <div class="sidebar-header">
+        <span class="label-wrap">
+          <span>Future</span>
+          <span class="future-badge">v2</span>
+        </span>
+        <span title="Preview of upcoming ideas" style="font-size:11px;color:var(--text-mute)">Preview</span>
+      </div>
+      <div class="list" id="future-list"><!-- populated by JS --></div>
+    </div>
+
+    <div class="sidebar-footer">
+      <span id="open-count">4 open</span>
+      <span title="Drag a document out to open in a new window">⤴ Drag out</span>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <div class="topbar">
+      <button class="toggle" onclick="toggleSidebar()" title="Toggle sidebar (⌘\)">☰</button>
+      <div class="breadcrumb">
+        <span id="crumb-dir">~/Projects/peekmd</span> ›
+        <span class="name" id="crumb">SPEC.md</span>
+      </div>
+      <span class="status-dot" title="Watching for changes"></span>
+      <span id="status-text">Live</span>
+      <div class="actions">
+        <button class="toc-show" onclick="toggleToc(false)" title="Show table of contents">☰ TOC</button>
+        <button onclick="toggleTheme()" title="Toggle theme (⌘⇧D)">◐</button>
+        <button onclick="openPalette()" title="Command palette (⌘K)">⌘K</button>
+        <button onclick="printDoc()" title="Print / Save as PDF (⌘P)">🖨</button>
+      </div>
+    </div>
+
+    <div class="content" id="content">
+      <div class="panes" id="panes">
+        <section class="pane" data-pane="left">
+          <div class="pane-head">
+            <span class="pane-name" id="crumb-left">SPEC.md</span>
+            <div class="pane-actions">
+              <button class="pane-btn" title="Swap panes" onclick="swapPanes()">⇄</button>
+            </div>
+          </div>
+          <div class="pane-body">
+            <article class="markdown-body" id="md-body"></article>
+          </div>
+        </section>
+
+        <section class="pane pane-right" data-pane="right" hidden>
+          <div class="pane-head">
+            <span class="pane-name" id="crumb-right">—</span>
+            <div class="pane-actions">
+              <button class="pane-btn" title="Close split view" onclick="closeSplit()">✕</button>
+            </div>
+          </div>
+          <div class="pane-body">
+            <article class="markdown-body" id="md-body-right"></article>
+          </div>
+        </section>
+      </div>
+      <nav class="toc" id="toc"></nav>
+    </div>
+  </main>
+</div>
+
+<!-- ============ COMMAND PALETTE ============ -->
+<div class="palette-scrim" id="palette" onclick="if(event.target===this)closePalette()">
+  <div class="palette">
+    <input placeholder="Jump to document, heading, or run a command…" id="palette-input">
+    <div class="results" id="palette-results"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  /* ------------ Data: mock open documents ------------ */
+  const docs = [
+    {
+      id: 'spec',
+      name: 'SPEC.md',
+      path: '~/Projects/peekmd',
+      dirty: true,
+      body: `# PeekMD
+
+> A tiny, fast Markdown previewer for people who live in \`README.md\`.
+
+PeekMD opens Markdown files, renders them in GitHub-flavored style, watches them
+for changes, and jumps you to whatever just changed. Multiple files stack in a
+sidebar you can flip through with the keyboard.
+
+## Highlights
+
+- **GitHub-flavored rendering** — tables, task lists, footnotes, autolinks, strike-through.
+- **Live reload** with scroll-to-change: edits in your editor surface here instantly.
+- **Multi-doc sidebar** — every open file is one click (or ⌘1..9) away.
+- **Native feel** — Tauri window, WKWebView on macOS, ~15 MB installer.
+
+## Feature matrix
+
+| Feature            | Status | Notes                                    |
+| ------------------ | :----: | ---------------------------------------- |
+| GFM tables         |   ✅   | via \`comrak\`                             |
+| Task lists         |   ✅   | \`- [x] done\`                             |
+| Mermaid            |   ✅   | client-side render                       |
+| Math (KaTeX)       |   ✅   | \`$…$\` and \`$$…$$\`                        |
+| Syntax highlighting|   ✅   | highlight.js, GitHub theme              |
+| Presentation mode  |   ⏳   | later                                    |
+
+## Task list
+
+- [x] Pick renderer (\`comrak\`)
+- [x] Wire file watcher
+- [ ] Scroll-sync on external edits
+- [ ] Export → PDF
+
+## Code
+
+\`\`\`rust
+use comrak::{markdown_to_html, ComrakOptions};
+
+fn render(md: &str) -> String {
+    let mut opts = ComrakOptions::default();
+    opts.extension.table = true;
+    opts.extension.tasklist = true;
+    opts.extension.strikethrough = true;
+    opts.extension.autolink = true;
+    opts.extension.footnotes = true;
+    opts.render.sourcepos = true;         // for scroll-sync
+    markdown_to_html(md, &opts)
+}
+\`\`\`
+
+## A blockquote
+
+> "It's fine to render Markdown. It's *rude* not to render it beautifully."
+> — someone, probably
+
+## Footnotes
+
+Rendering respects footnotes[^1] and autolinks like https://tauri.app.
+
+[^1]: Comrak handles these natively when the extension is enabled.
+`
+    },
+    {
+      id: 'readme',
+      name: 'README.md',
+      path: '~/Projects/peekmd',
+      dirty: false,
+      body: `# README
+
+PeekMD is a Markdown previewer.
+
+## Install
+
+\`\`\`bash
+brew install --cask peekmd
+\`\`\`
+
+## Usage
+
+Open any \`.md\` file with PeekMD. It renders. That's it.
+
+- Drag files onto the sidebar
+- Use \`peekmd file.md\` from the terminal
+- Right-click → *Open with PeekMD*
+
+## Why
+
+Because \`README.md\` deserves better than a Chromium tab.
+`
+    },
+    {
+      id: 'notes',
+      name: 'notes.md',
+      path: '~/Documents',
+      dirty: false,
+      body: `# Meeting Notes — Tuesday
+
+## Attendees
+
+- Chris
+- Alice
+- Bob
+
+## Decisions
+
+1. Ship the mock this week.
+2. Renderer: **comrak**.
+3. Highlight.js theme mirrors GitHub.
+
+## Follow-ups
+
+- [ ] Alice: draft the file-watcher spec
+- [ ] Bob: benchmark 10 MB markdown files
+`
+    },
+    {
+      id: 'changelog',
+      name: 'CHANGELOG.md',
+      path: '~/Projects/peekmd',
+      dirty: false,
+      body: `# Changelog
+
+## 0.1.0 — Unreleased
+
+- Initial mock
+- Sidebar layout
+- Live-reload plumbing (stub)
+
+## 0.0.1
+
+- Repo created
+`
+    },
+  ];
+  /* ------------ Minimal Markdown → HTML ------------
+     A tiny renderer only for the mock. In the real app,
+     comrak (Rust) produces this HTML. */
+  function renderMarkdown(md) {
+    // Fenced code
+    md = md.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
+      const esc = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return `<pre><code class="language-${lang||''}">${esc}</code></pre>`;
+    });
+
+    // Tables (GFM)
+    md = md.replace(/^\|(.+)\|\n\|([ :\-|]+)\|\n((?:\|.*\|\n?)+)/gm, (m, head, align, body) => {
+      const cells = s => s.split('|').map(x => x.trim()).filter((_,i,a)=>i>0||true);
+      const heads = head.split('|').map(x=>x.trim()).filter(Boolean);
+      const aligns = align.split('|').map(x=>x.trim()).filter(Boolean).map(a=>{
+        if (a.startsWith(':') && a.endsWith(':')) return 'center';
+        if (a.endsWith(':')) return 'right';
+        return 'left';
+      });
+      const rows = body.trim().split('\n').map(r => r.split('|').map(x=>x.trim()).filter(Boolean));
+      const th = heads.map((h,i)=>`<th align="${aligns[i]||'left'}">${h}</th>`).join('');
+      const tr = rows.map(r => '<tr>' + r.map((c,i)=>`<td align="${aligns[i]||'left'}">${c}</td>`).join('') + '</tr>').join('');
+      return `<table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
+    });
+
+    // Headings
+    md = md.replace(/^###### (.*)$/gm,'<h6>$1</h6>');
+    md = md.replace(/^##### (.*)$/gm,'<h5>$1</h5>');
+    md = md.replace(/^#### (.*)$/gm,'<h4>$1</h4>');
+    md = md.replace(/^### (.*)$/gm,'<h3>$1</h3>');
+    md = md.replace(/^## (.*)$/gm,'<h2>$1</h2>');
+    md = md.replace(/^# (.*)$/gm,'<h1>$1</h1>');
+
+    // Blockquote (single-line-collapsed)
+    md = md.replace(/^(> .*(?:\n> .*)*)/gm, m => {
+      const inner = m.split('\n').map(l => l.replace(/^> ?/,'')).join('\n');
+      return `<blockquote>${inline(inner).replace(/\n/g,'<br>')}</blockquote>`;
+    });
+
+    // Task lists + unordered
+    md = md.replace(/(^|\n)((?:- .*(?:\n|$))+)/g, (m, pre, block) => {
+      const items = block.trim().split('\n').map(l => {
+        let s = l.replace(/^- /, '');
+        const task = s.match(/^\[( |x|X)\] (.*)$/);
+        if (task) {
+          const checked = task[1].toLowerCase() === 'x' ? 'checked' : '';
+          return `<li class="task-list-item"><input type="checkbox" disabled ${checked}> ${inline(task[2])}</li>`;
+        }
+        return `<li>${inline(s)}</li>`;
+      }).join('');
+      return `${pre}<ul>${items}</ul>`;
+    });
+
+    // Ordered lists
+    md = md.replace(/(^|\n)((?:\d+\. .*(?:\n|$))+)/g, (m, pre, block) => {
+      const items = block.trim().split('\n').map(l => `<li>${inline(l.replace(/^\d+\. /, ''))}</li>`).join('');
+      return `${pre}<ol>${items}</ol>`;
+    });
+
+    // Footnote definition
+    md = md.replace(/^\[\^(\w+)\]:\s*(.*)$/gm,
+      '<div class="footnote"><sup>$1</sup> $2</div>');
+
+    // Paragraphs (leftover lines)
+    md = md.split(/\n{2,}/).map(chunk => {
+      if (/^\s*<(h\d|pre|table|blockquote|ul|ol|div)/.test(chunk)) return chunk;
+      if (!chunk.trim()) return '';
+      return `<p>${inline(chunk).replace(/\n/g,'<br>')}</p>`;
+    }).join('\n');
+
+    return md;
+
+    function inline(s) {
+      // inline code
+      s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+      // bold + italic
+      s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+      // strike-through
+      s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+      // links
+      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+      // autolinks
+      s = s.replace(/(?<!["=>])(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
+      // footnote ref
+      s = s.replace(/\[\^(\w+)\]/g, '<sup><a href="#fn-$1">$1</a></sup>');
+      return s;
+    }
+  }
+
+  /* ------------ State ------------ */
+  let activeId = 'spec';
+  let rightId  = null;                 // split-view right pane
+  const recent = [];                   // stack of recently closed docs
+  const detachedWindows = [];          // popped-out doc windows in the mock
+
+  const FUTURE_HINT = {
+    id: 'future-split',
+    name: 'Split view',
+    hint: 'Hover any file → click ▮▯ to open it beside the current doc.',
+  };
+
+  /* ------------ Sidebar ------------ */
+  const FILE_ICON = '<svg class="icon" viewBox="0 0 16 16" fill="currentColor"><path d="M2 1.75C2 .784 2.784 0 3.75 0h5.586c.464 0 .909.184 1.237.513l3.914 3.914c.329.328.513.773.513 1.237V14.25A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z"/></svg>';
+
+  // Split icon: rectangle with the right half filled (indicates "open on the right").
+  const SPLIT_ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M8 2.5v11" /><rect class="fill-half" x="8" y="2.5" width="6.5" height="11" rx="0" stroke="none"/></svg>';
+
+  function renderSidebar() {
+    const list = document.getElementById('doc-list');
+    list.innerHTML = docs.map(d => `
+      <div class="doc-item ${d.id===activeId?'active':''} ${d.dirty?'dirty':''} ${d.id===rightId?'pinned-right':''}"
+           draggable="true" data-id="${d.id}">
+        ${FILE_ICON}
+        <div style="flex:1; min-width:0">
+          <div class="name">${d.name}</div>
+          <div class="path">${d.path}</div>
+        </div>
+        <button class="split-btn" data-split="${d.id}"
+                title="${d.id===rightId?'Close split view':'Open in split view'}">
+          ${SPLIT_ICON}
+        </button>
+        <span class="dirty" title="Modified since last save"></span>
+        <span class="close" title="Close" data-close="${d.id}">×</span>
+      </div>
+    `).join('');
+
+    list.querySelectorAll('.doc-item').forEach(el => {
+      el.addEventListener('click', e => {
+        const splitBtn = e.target.closest('[data-split]');
+        const closeBtn = e.target.closest('[data-close]');
+        if (closeBtn) { closeDoc(closeBtn.dataset.close); e.stopPropagation(); return; }
+        if (splitBtn) { toggleSplit(splitBtn.dataset.split); e.stopPropagation(); return; }
+        activate(el.dataset.id);
+      });
+      // Drag out → detached window
+      el.addEventListener('dragstart', e => onDragStart(e, el.dataset.id));
+      el.addEventListener('dragend',   e => onDragEnd(e));
+    });
+
+    document.getElementById('open-count').textContent = `${docs.length} open`;
+    renderRecent();
+    renderFuture();
+  }
+
+  function renderRecent() {
+    const list = document.getElementById('recent-list');
+    if (!recent.length) {
+      list.innerHTML = '<div class="recent-empty">No recently closed files</div>';
+      return;
+    }
+    list.innerHTML = recent.slice(0, 8).map((d, i) => `
+      <div class="recent-item" data-reopen="${i}" title="Reopen ${d.path}/${d.name}">
+        ${FILE_ICON}
+        <span class="name">${d.name}</span>
+        <span class="when">${d.closedAt}</span>
+      </div>`).join('');
+    list.querySelectorAll('[data-reopen]').forEach(el => {
+      el.addEventListener('click', () => reopenRecent(+el.dataset.reopen));
+    });
+  }
+
+  function renderFuture() {
+    const list = document.getElementById('future-list');
+    list.innerHTML = `
+      <div class="doc-item" style="cursor:default" title="Preview only — click a file's split icon">
+        ${FILE_ICON}
+        <div style="flex:1; min-width:0">
+          <div class="name">${FUTURE_HINT.name}</div>
+          <div class="path">${FUTURE_HINT.hint}</div>
+        </div>
+        <button class="split-btn" style="display:inline-flex" title="Try me on any file above">
+          ${SPLIT_ICON}
+        </button>
+      </div>`;
+  }
+
+  /* ------------ Content ------------ */
+  function renderContent() {
+    renderPane('left',  activeId);
+    renderPane('right', rightId);
+
+    const panes = document.getElementById('panes');
+    const rightSection = document.querySelector('[data-pane="right"]');
+    if (rightId) {
+      panes.classList.add('split');
+      rightSection.hidden = false;
+    } else {
+      panes.classList.remove('split');
+      rightSection.hidden = true;
+    }
+
+    const activeDoc = docs.find(d => d.id === activeId);
+    if (activeDoc) {
+      document.getElementById('crumb').textContent = activeDoc.name;
+      document.getElementById('crumb-dir').textContent = activeDoc.path;
+      document.getElementById('title').textContent =
+        rightId ? `PeekMD — ${activeDoc.name} ⇆ ${docs.find(d=>d.id===rightId)?.name || ''}`
+                : `PeekMD — ${activeDoc.name}`;
+    }
+    renderToc();
+  }
+
+  function renderPane(side, id) {
+    const doc = docs.find(d => d.id === id);
+    const bodyId = side === 'left' ? 'md-body' : 'md-body-right';
+    const crumbId = side === 'left' ? 'crumb-left' : 'crumb-right';
+    const body = document.getElementById(bodyId);
+    if (!body) return;
+    if (!doc) { body.innerHTML = ''; document.getElementById(crumbId).textContent = '—'; return; }
+    body.innerHTML = renderMarkdown(doc.body);
+    body.querySelectorAll('h1, h2, h3').forEach(h => {
+      const slug = h.textContent.toLowerCase().replace(/[^\w]+/g,'-').replace(/^-|-$/g,'');
+      h.id = `${side}-${slug}`;
+    });
+    body.querySelectorAll('pre code').forEach(el => {
+      try { hljs.highlightElement(el); } catch (e) {}
+    });
+    document.getElementById(crumbId).textContent = doc.name;
+  }
+
+  function renderToc() {
+    const body = document.getElementById('md-body');
+    const heads = body.querySelectorAll('h2, h3');
+    const toc = document.getElementById('toc');
+    toc.innerHTML = `
+      <div class="toc-head">
+        <span class="label">On this page</span>
+        <button class="close" title="Hide (⌘⇧T)" onclick="toggleToc(true)">×</button>
+      </div>
+      ${Array.from(heads).map(h => `<a class="${h.tagName.toLowerCase()==='h3'?'h3':''}" href="#${h.id}">${h.textContent}</a>`).join('')}
+    `;
+  }
+
+  /* ------------ Actions ------------ */
+  function activate(id) {
+    if (id === rightId) rightId = null;    // moving into left, drop from right
+    activeId = id;
+    renderSidebar(); renderContent();
+    document.querySelector('[data-pane="left"] .pane-body').scrollTop = 0;
+  }
+
+  function closeDoc(id) {
+    const i = docs.findIndex(d => d.id === id);
+    if (i < 0) return;
+    const [doc] = docs.splice(i, 1);
+    recent.unshift({ ...doc, closedAt: 'just now' });
+    if (recent.length > 20) recent.length = 20;
+
+    if (rightId === id) rightId = null;
+    if (activeId === id) activeId = docs[0] ? docs[0].id : null;
+    renderSidebar();
+    if (activeId) renderContent(); else document.getElementById('md-body').innerHTML = '';
+    toast(`Closed ${doc.name}`);
+  }
+
+  function reopenRecent(idx) {
+    const [doc] = recent.splice(idx, 1);
+    if (!doc) return;
+    delete doc.closedAt;
+    docs.unshift(doc);
+    activate(doc.id);
+    toast(`Reopened ${doc.name}`);
+  }
+
+  function clearRecent() {
+    recent.length = 0; renderRecent();
+  }
+
+  function toggleSplit(id) {
+    if (id === activeId) { toast('Already in the left pane'); return; }
+    rightId = (rightId === id) ? null : id;
+    renderSidebar(); renderContent();
+    toast(rightId ? 'Opened in split view' : 'Closed split view');
+  }
+
+  function closeSplit() { rightId = null; renderSidebar(); renderContent(); }
+
+  function swapPanes() {
+    if (!rightId) return;
+    [activeId, rightId] = [rightId, activeId];
+    renderSidebar(); renderContent();
+  }
+
+  function toggleToc(hide) {
+    const toc = document.getElementById('toc');
+    const main = document.querySelector('.main');
+    if (hide === undefined) hide = !toc.classList.contains('hidden');
+    toc.classList.toggle('hidden', hide);
+    main.classList.toggle('toc-hidden', hide);
+  }
+
+  function printDoc() {
+    // In Tauri: window.print() shells to the OS print dialog → macOS "Save as PDF" is one click away.
+    toast('Opening print dialog…');
+    setTimeout(() => window.print(), 200);
+  }
+
+  /* ------------ Drag out to new window ------------ */
+  function onDragStart(e, id) {
+    const doc = docs.find(d => d.id === id);
+    if (!doc) return;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/x-peekmd-doc', id);
+    // Custom ghost
+    const ghost = document.createElement('div');
+    ghost.className = 'drag-ghost';
+    ghost.textContent = `⤴ ${doc.name}`;
+    document.body.appendChild(ghost);
+    ghost.style.left = e.clientX + 'px';
+    ghost.style.top  = e.clientY + 'px';
+    e.dataTransfer.setDragImage(ghost, 10, 10);
+    setTimeout(() => ghost.remove(), 0);
+    document.body.classList.add('dragging-out');
+    onDragStart._id = id;
+  }
+
+  function onDragEnd(e) {
+    document.body.classList.remove('dragging-out');
+    const id = onDragStart._id;
+    onDragStart._id = null;
+    if (!id) return;
+    // If dropped outside the sidebar, treat as "pop out"
+    const sidebar = document.querySelector('.sidebar').getBoundingClientRect();
+    const inside = e.clientX >= sidebar.left && e.clientX <= sidebar.right
+                 && e.clientY >= sidebar.top  && e.clientY <= sidebar.bottom;
+    if (inside) return;
+    detachDoc(id, e.clientX, e.clientY);
+  }
+
+  function detachDoc(id, x, y) {
+    const doc = docs.find(d => d.id === id);
+    if (!doc) return;
+    const stage = ensureStage();
+    const win = document.createElement('div');
+    win.className = 'detached-win';
+    // Cap position within viewport
+    const w = 640, h = 420;
+    x = Math.min(Math.max(x - 40, 20), window.innerWidth  - w - 20);
+    y = Math.min(Math.max(y - 20, 20), window.innerHeight - h - 20);
+    win.style.left = x + 'px';
+    win.style.top  = y + 'px';
+    win.innerHTML = `
+      <div class="bar">
+        <div class="traffic"><i></i><i></i><i></i></div>
+        <span class="title">PeekMD — ${doc.name} (detached)</span>
+        <button class="close-w" title="Close">×</button>
+      </div>
+      <div class="body">
+        <article class="markdown-body"></article>
+      </div>
+    `;
+    const body = win.querySelector('.markdown-body');
+    body.innerHTML = renderMarkdown(doc.body);
+    body.querySelectorAll('pre code').forEach(el => { try { hljs.highlightElement(el); } catch(e){} });
+    stage.appendChild(win);
+    detachedWindows.push(win);
+    win.querySelector('.close-w').addEventListener('click', () => {
+      win.remove();
+      detachedWindows.splice(detachedWindows.indexOf(win), 1);
+    });
+    makeDraggable(win, win.querySelector('.bar'));
+    toast(`${doc.name} opened in a new window`);
+  }
+
+  function ensureStage() {
+    let s = document.querySelector('.detached-stage');
+    if (!s) {
+      s = document.createElement('div');
+      s.className = 'detached-stage';
+      document.body.appendChild(s);
+    }
+    return s;
+  }
+
+  function makeDraggable(win, handle) {
+    let sx=0, sy=0, ox=0, oy=0, dragging=false;
+    handle.addEventListener('mousedown', e => {
+      dragging = true; sx = e.clientX; sy = e.clientY;
+      const rect = win.getBoundingClientRect();
+      ox = rect.left; oy = rect.top;
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      win.style.left = (ox + e.clientX - sx) + 'px';
+      win.style.top  = (oy + e.clientY - sy) + 'px';
+    });
+    document.addEventListener('mouseup', () => dragging = false);
+  }
+
+  /* ------------ Live-reload simulation ------------ */
+  function simulateChange() {
+    const doc = docs.find(d => d.id === activeId);
+    if (!doc) return;
+    doc.body = doc.body.replace(/- \[ \] Export → PDF/, '- [ ] Export → PDF\n- [x] Simulated live edit');
+    doc.dirty = true;
+    renderSidebar(); renderContent();
+    const lists = document.querySelectorAll('[data-pane="left"] .markdown-body ul');
+    const last = lists[lists.length-1];
+    if (last) {
+      last.scrollIntoView({behavior:'smooth', block:'center'});
+      last.classList.add('change-flash');
+      setTimeout(()=>last.classList.remove('change-flash'), 1600);
+    }
+    toast('File changed — jumped to edit');
+  }
+
+  /* ------------ UI helpers ------------ */
+  function toggleSidebar() { document.getElementById('layout').classList.toggle('sidebar-hidden'); }
+  function toggleTheme() {
+    const b = document.body;
+    const dark = b.dataset.theme === 'dark';
+    b.dataset.theme = dark ? 'light' : 'dark';
+    document.getElementById('hljs-light').disabled = !dark;
+    document.getElementById('hljs-dark').disabled  = dark;
+  }
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(()=>t.classList.remove('show'), 1600);
+  }
+
+  /* ------------ Command palette ------------ */
+  function openPalette() {
+    document.getElementById('palette').classList.add('open');
+    const inp = document.getElementById('palette-input');
+    inp.value = ''; renderPaletteResults('');
+    setTimeout(()=>inp.focus(), 50);
+  }
+  function closePalette() { document.getElementById('palette').classList.remove('open'); }
+  function renderPaletteResults(q) {
+    const items = [
+      ...docs.map(d => ({label:d.name, hint:d.path, action:()=>activate(d.id)})),
+      ...recent.map((d,i) => ({label:`Reopen: ${d.name}`, hint:d.path, action:()=>reopenRecent(i)})),
+      {label:'Toggle sidebar',           hint:'⌘\\',  action:toggleSidebar},
+      {label:'Toggle table of contents', hint:'⌘⇧T', action:()=>toggleToc()},
+      {label:'Toggle theme',             hint:'⌘⇧D', action:toggleTheme},
+      {label:'Print / Save as PDF',      hint:'⌘P',  action:printDoc},
+      {label:'Simulate file change',     hint:'⌘R',  action:simulateChange},
+      {label:'Close split view',         hint:'',    action:closeSplit},
+      {label:'Copy as HTML',             hint:'',    action:()=>toast('Copied HTML')},
+      {label:'Reveal in Finder',         hint:'',    action:()=>toast('Revealed')},
+    ];
+    const filtered = items.filter(i => i.label.toLowerCase().includes(q.toLowerCase()));
+    const box = document.getElementById('palette-results');
+    box.innerHTML = filtered.map((it,i) => `<div class="row ${i===0?'selected':''}" data-idx="${i}">
+      <span>${it.label}</span><span class="hint">${it.hint}</span></div>`).join('');
+    box.querySelectorAll('.row').forEach(r => r.addEventListener('click', ()=>{
+      filtered[+r.dataset.idx].action(); closePalette();
+    }));
+  }
+
+  /* ------------ Keybindings ------------ */
+  document.addEventListener('keydown', e => {
+    const meta = e.metaKey || e.ctrlKey;
+    if (meta && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); }
+    else if (meta && e.key === '\\')          { e.preventDefault(); toggleSidebar(); }
+    else if (meta && e.shiftKey && e.key.toLowerCase() === 'd') { e.preventDefault(); toggleTheme(); }
+    else if (meta && e.shiftKey && e.key.toLowerCase() === 't') { e.preventDefault(); toggleToc(); }
+    else if (meta && e.key.toLowerCase() === 'p') { e.preventDefault(); printDoc(); }
+    else if (meta && /^[1-9]$/.test(e.key))    { e.preventDefault(); const d = docs[+e.key-1]; if (d) activate(d.id); }
+    else if (meta && e.key.toLowerCase() === 'w') { e.preventDefault(); if(activeId) closeDoc(activeId); }
+    else if (e.key === 'Escape') closePalette();
+    else if (meta && e.key.toLowerCase() === 'r') { e.preventDefault(); simulateChange(); }
+  });
+  document.getElementById('palette-input')?.addEventListener('input', e => renderPaletteResults(e.target.value));
+
+  /* ------------ Init ------------ */
+  renderSidebar();
+  renderContent();
+
+  // Auto-simulate a change 3 seconds in so the reviewer sees the effect.
+  setTimeout(simulateChange, 3000);
+</script>
+</body>
+</html>

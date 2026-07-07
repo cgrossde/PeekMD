@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "debug",
+  "description": "Debug-only automation socket (screenshots, JS eval, DOM inspection via tauri-plugin-playwright). build.rs only includes this file's capability when Cargo's `DEBUG` build-script env var is \"true\" — the same signal `#[cfg(debug_assertions)]` uses in lib.rs to register the plugin in the first place. A release build never sees this permission granted, even if the debug_assertions gate on the plugin registration were ever accidentally dropped.",
+  "windows": ["main", "doc-*"],
+  "permissions": [
+    "playwright:default"
+  ]
+}

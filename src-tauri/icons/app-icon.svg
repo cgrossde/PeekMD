@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    Apple macOS app icon (1024×1024).
+
+    Layout matches the macOSDefaultIconTemplate:
+      - Visible artwork: 824×824 box centered on a transparent canvas
+        (= 100 px safe-area on every side).
+      - Continuous-corner squircle silhouette ("Figma-style" approximation
+        of Apple's _continuousRoundedRectBezierPath), corner radius 186,
+        smoothing 0.6 — the values that match Apple's macOS template.
+
+    Generated path source:
+        figma-squircle@1.1.0
+        getSvgPath({ width:824, height:824, cornerRadius:186,
+                     cornerSmoothing:0.6, preserveSmoothing:true })
+  -->
+
+  <!-- Background squircle (off-white) — translated to (100,100) for the safe area -->
+  <g transform="translate(100 100)">
+    <path fill="#fbfaf8" d="M 526.4 0 c 104.1698 0 156.2546 0 196.0422 20.2728 a 186.0000 186.0000 0 0 1 81.2850 81.2850 c 20.2728 39.7876 20.2728 91.8725 20.2728 196.0422 L 824 526.4 c 0 104.1698 0 156.2546 -20.2728 196.0422 a 186.0000 186.0000 0 0 1 -81.2850 81.2850 c -39.7876 20.2728 -91.8725 20.2728 -196.0422 20.2728 L 297.6 824 c -104.1698 0 -156.2546 0 -196.0422 -20.2728 a 186.0000 186.0000 0 0 1 -81.2850 -81.2850 c -20.2728 -39.7876 -20.2728 -91.8725 -20.2728 -196.0422 L 0 297.6 c 0 -104.1698 0 -156.2546 20.2728 -196.0422 a 186.0000 186.0000 0 0 1 81.2850 -81.2850 c 39.7876 -20.2728 91.8725 -20.2728 196.0422 -20.2728 Z"/>
+
+    <!--
+      Diagonal slit, centered, with comfortable inset.
+      Endpoints sit at (130, 694) → (694, 130) inside the 824×824 box,
+      = 130 px breathing room from each edge.
+    -->
+    <line x1="130" y1="694" x2="694" y2="130"
+          stroke="#2553d8" stroke-width="86" stroke-linecap="round"/>
+  </g>
+</svg>
