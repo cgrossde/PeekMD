@@ -28,6 +28,8 @@ jobs:
         with:
           targets: aarch64-apple-darwin
 
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --version "^2.11" --locked
       - name: Install frontend deps
         run: bun install --frozen-lockfile
 
