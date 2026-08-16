@@ -1,6 +1,6 @@
 [package]
 name = "peekmd"
-version = "0.1.0"
+version = "0.1.1"
 description = "PeekMD — GitHub-flavored Markdown previewer"
 authors = []
 edition = "2021"
