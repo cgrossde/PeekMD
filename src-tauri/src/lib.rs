@@ -4,6 +4,8 @@ mod logging;
 mod watcher;
 mod commands;
 mod skill;
+#[cfg(target_os = "macos")]
+mod default_app;
 
 use std::path::PathBuf;
 use tauri::{Emitter, Manager, RunEvent};
@@ -83,6 +85,10 @@ pub fn run() {
             if !paths.is_empty() {
                 let _ = handle.emit("peekmd://open-files", OpenFilesPayload { paths });
             }
+            // Offer to become the system Markdown handler, once, on first launch.
+            #[cfg(target_os = "macos")]
+            default_app::maybe_prompt_on_first_launch(&handle);
+
             // Register the sidebar context-menu event handler exactly once.
             // show_sidebar_context_menu sets the current path in ContextMenuTarget
             // before popping the menu; this handler reads it back.

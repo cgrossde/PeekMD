@@ -45,3 +45,17 @@ urlencoding = "2"
 # Debug-only control socket (screenshots, eval, DOM inspection).
 # Always compiled; only initialised in debug builds via #[cfg(debug_assertions)] in lib.rs.
 tauri-plugin-playwright = "0.2"
+
+# macOS-only: request default-handler status for Markdown on first launch (default_app.rs).
+# All but objc2-uniform-type-identifiers already arrive transitively via tauri.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+# objc2-uniform-type-identifiers is NOT a default feature; without it the
+# UTType-taking NSWorkspace methods are compiled out.
+objc2-app-kit = { version = "0.3", features = [
+    "NSWorkspace",
+    "objc2-uniform-type-identifiers",
+] }
+objc2-uniform-type-identifiers = "0.3"
+block2 = "0.6"

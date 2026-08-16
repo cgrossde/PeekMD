@@ -64,10 +64,7 @@
         "name": "Markdown Document",
         "role": "Viewer",
         "rank": "Owner",
-        "exportedType": {
-          "identifier": "com.peekmd.markdown",
-          "conformsTo": ["public.plain-text"]
-        }
+        "contentTypes": ["net.daringfireball.markdown"]
       }
     ]
   }
