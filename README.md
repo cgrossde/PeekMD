@@ -88,7 +88,7 @@ Full list: [docs/keyboard-shortcuts.md](docs/keyboard-shortcuts.md)
 **Requirements:** Rust (stable), [Bun](https://bun.sh), Xcode command-line tools.
 
 ```sh
-git clone https://github.com/your-org/peekmd
+git clone https://github.com/cgrossde/PeekMD
 cd peekmd
 bun install
 
