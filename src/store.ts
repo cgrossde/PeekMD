@@ -32,7 +32,7 @@ export type StoreState = {
   ui: UiState;
   navBack: DocId[];
   navForward: DocId[];
-  openFile: (path: string, options?: { pushHistory?: boolean }) => Promise<void>;
+  openFile: (path: string, options?: { pushHistory?: boolean; activate?: boolean }) => Promise<void>;
   openMany: (paths: string[]) => Promise<void>;
   activate: (id: DocId, options?: { pushHistory?: boolean }) => void;
   close: (id: DocId) => void;
@@ -69,15 +69,16 @@ export const useStore = create<StoreState>()((set, get) => ({
 
   openFile: async (path, options) => {
     const pushHistory = options?.pushHistory ?? true;
+    const doActivate = options?.activate ?? true;
     const { openDocs, activate } = get();
     // Always strip from recents when (re)opening — regardless of whether it's already open.
     set(s => ({ recentlyClosed: s.recentlyClosed.filter(r => r.path !== path) }));
-    if (openDocs.find(d => d.path === path)) { activate(path, { pushHistory }); return; }
+    if (openDocs.find(d => d.path === path)) { if (doActivate) activate(path, { pushHistory }); return; }
     const r = await invoke<RenderedDoc>('render_markdown', { path });
     set(s => ({ openDocs: [...s.openDocs, { path, title: r.title, html: r.html, headings: r.headings, mtime: r.mtime, dirty: false }] }));
     await invoke('watch_paths', { paths: [path] }).catch((err: unknown) => set({ lastError: `Watch failed: ${err}` }));
     if (r.local_images.length > 0) invoke('watch_images', { md: path, images: r.local_images }).catch(() => {});
-    activate(path, { pushHistory });
+    if (doActivate) activate(path, { pushHistory });
   },
 
   openMany: async (paths) => {
@@ -222,11 +223,16 @@ export const useStore = create<StoreState>()((set, get) => ({
       try {
         // pushHistory: false — restoring docs is not user navigation and must
         // not seed navBack/navForward (history starts clean every session).
-        await get().openFile(p, { pushHistory: false });
+        // activate: false — restoring must not steal focus from a file opened
+        // explicitly this launch (CLI arg / Finder / open-files), which races
+        // hydration and sets activeDocId first.
+        await get().openFile(p, { pushHistory: false, activate: false });
         validPaths.push(p);
       } catch { /* missing file — skip silently */ }
     }
-    if (persisted.activeDoc && validPaths.includes(persisted.activeDoc)) {
+    // Restore the persisted active doc ONLY if no explicit open already claimed
+    // focus this launch. An explicitly opened file must always win.
+    if (get().activeDocId === null && persisted.activeDoc && validPaths.includes(persisted.activeDoc)) {
       get().activate(persisted.activeDoc, { pushHistory: false });
     }
     // Defensive reset: guarantees a clean history regardless of the path above.

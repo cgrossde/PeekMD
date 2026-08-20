@@ -102,6 +102,30 @@ describe('navigation history', () => {
     expect(useStore.getState().openDocs.map(d => d.path)).toEqual(['/docs/a.md', '/docs/b.md']);
     expect(useStore.getState().navBack).toEqual([]);
   });
+
+  // Regression test: on cold launch, a file opened explicitly (CLI arg / Finder /
+  // open-files) races hydrateFromDisk. Hydration restoring the persisted active
+  // doc must NOT steal focus from the explicitly opened file, which appeared in
+  // the sidebar but was left unfocused.
+  it('hydrateFromDisk does not override a file opened explicitly this launch', async () => {
+    loadState.mockResolvedValue({
+      version: 2,
+      openDocs: ['/docs/a.md', '/docs/b.md'],
+      activeDoc: '/docs/b.md',
+      rightPaneDoc: null,
+      recentlyClosed: [],
+      scrollPositions: {},
+      ui: { sidebarVisible: true, tocVisible: true, themeOverride: null },
+    });
+    seed('/docs/cli.md');
+
+    // Explicit open lands first (the CLI-passed file), then hydration runs.
+    await useStore.getState().openFile('/docs/cli.md');
+    await useStore.getState().hydrateFromDisk();
+
+    expect(useStore.getState().activeDocId).toBe('/docs/cli.md');
+    expect(useStore.getState().openDocs.map(d => d.path)).toEqual(['/docs/cli.md', '/docs/a.md', '/docs/b.md']);
+  });
 });
 
 describe('close / closeOthers', () => {
