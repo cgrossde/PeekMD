@@ -100,22 +100,23 @@ fn cmd_open(paths: Vec<String>) {
         })
         .collect();
 
-    // Strategy 1: `open -g -b com.peekmd.desktop --args <paths>`
-    // -g = do not bring the app to the foreground.
-    // Works when the signed .app is installed under /Applications.
-    let mut cmd = std::process::Command::new("open");
-    cmd.arg("-g")
-        .arg("-b")
-        .arg("com.peekmd.desktop");
-    // Pass --args before the file paths so macOS routes them to the app's argv.
-    cmd.arg("--args");
-    for p in &abs {
-        cmd.arg(p);
-    }
-
-    match cmd.status() {
-        Ok(s) if s.success() => return,
-        _ => {}
+    // Strategy 1: `open -a /Applications/PeekMD.app <paths>`
+    // Path-based open works for unsigned/ad-hoc apps and correctly reuses a
+    // running instance (macOS LSOpen handles single-instance activation).
+    // We do NOT use `-g` here so the file is actually brought forward.
+    // Note: `open -b <bundleID>` exits 0 even when it silently fails to launch
+    // an unsigned app, so we avoid it.
+    let app_bundle = PathBuf::from("/Applications/PeekMD.app");
+    if app_bundle.exists() {
+        let mut cmd = std::process::Command::new("open");
+        cmd.arg("-a").arg(&app_bundle);
+        for p in &abs {
+            cmd.arg(p);
+        }
+        match cmd.status() {
+            Ok(s) if s.success() => return,
+            _ => {}
+        }
     }
 
     // Strategy 2: directly exec the dev-build binary (skips the bundle launcher).

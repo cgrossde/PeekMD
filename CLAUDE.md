@@ -24,6 +24,16 @@ bun run test             # frontend unit tests (vitest)
 cargo test               # (from src-tauri/) Rust unit tests
 ```
 
+> **Building the release app / DMG — ALWAYS use `bash scripts/release-unsigned.sh`**
+> (which wraps `cargo tauri build`). This runs the Vite frontend build first and
+> embeds `dist/` into the bundle.
+>
+> **NEVER build the release app with `cargo build --release` alone.** It compiles
+> only the Rust binary and skips the frontend build, so the WebView has no assets
+> to load and the app launches to a **blank white screen**. A white screen means
+> a stale/missing frontend bundle — rebuild via the script, not `cargo build`.
+> `cargo build`/`cargo check` are fine for Rust-only typechecking, never for a runnable app.
+
 ```bash
 # E2E tests — browser mode (no app needed, IPC mocked; CI-friendly)
 bunx playwright test --project=browser
