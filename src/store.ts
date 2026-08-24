@@ -38,6 +38,7 @@ export type StoreState = {
   close: (id: DocId) => void;
   closeOthers: (id: DocId) => void;
   reopenRecent: (path: string) => Promise<void>;
+  removeRecent: (path: string) => void;
   navigateBack: () => void;
   navigateForward: () => void;
   markDirty: (path: string, mtime: number) => Promise<void>;
@@ -145,6 +146,10 @@ export const useStore = create<StoreState>()((set, get) => ({
   reopenRecent: async (path) => {
     set(s => ({ recentlyClosed: s.recentlyClosed.filter(r => r.path !== path) }));
     await get().openFile(path);
+  },
+
+  removeRecent: (path) => {
+    set(s => ({ recentlyClosed: s.recentlyClosed.filter(r => r.path !== path) }));
   },
 
   navigateBack: () => {

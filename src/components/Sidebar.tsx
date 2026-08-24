@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useStore } from '../store';
 import { SidebarRow } from './SidebarRow';
 import { timeAgo } from '../lib/timeAgo';
-import { stemName, disambiguator } from '../lib/paths';
+import { stemName, parentFolder } from '../lib/paths';
 import { FileText, Clock } from 'lucide-react';
 
 export function Sidebar({ onResizeHandleMouseDown }: { onResizeHandleMouseDown: (e: React.MouseEvent) => void }) {
@@ -14,6 +14,7 @@ export function Sidebar({ onResizeHandleMouseDown }: { onResizeHandleMouseDown: 
   const activate = useStore(s => s.activate);
   const close = useStore(s => s.close);
   const reopenRecent = useStore(s => s.reopenRecent);
+  const removeRecent = useStore(s => s.removeRecent);
   const closeOthers = useStore(s => s.closeOthers);
 
   // Listen for context menu selections
@@ -48,14 +49,6 @@ export function Sidebar({ onResizeHandleMouseDown }: { onResizeHandleMouseDown: 
     void invoke('show_sidebar_context_menu', { path, x: e.clientX, y: e.clientY });
   };
 
-  // All paths visible anywhere in the sidebar — union of open + recent.
-  // Qualifiers are computed against this full set so a name that's unique
-  // among open docs but clashes with a recent entry still gets disambiguated.
-  const allPaths = [
-    ...openDocs.map(d => d.path),
-    ...recentlyClosed.map(r => r.path),
-  ];
-
   return (
     <aside className="peekmd-sidebar" aria-label="Documents">
       <div className="peekmd-sidebar-resize-handle" onMouseDown={onResizeHandleMouseDown} aria-hidden />
@@ -70,7 +63,7 @@ export function Sidebar({ onResizeHandleMouseDown }: { onResizeHandleMouseDown: 
               key={doc.path}
               doc={doc}
               active={doc.path === activeDocId}
-              qualifier={disambiguator(allPaths, doc.path)}
+              folder={parentFolder(doc.path)}
               onActivate={() => activate(doc.path)}
               onClose={() => close(doc.path)}
               onContext={handleContext(doc.path)}
@@ -87,7 +80,7 @@ export function Sidebar({ onResizeHandleMouseDown }: { onResizeHandleMouseDown: 
           </div>
           <ul className="peekmd-sidebar-list">
             {recentlyClosed.map(r => {
-              const qualifier = disambiguator(allPaths, r.path);
+              const folder = parentFolder(r.path);
               return (
                 <li key={r.path} className="peekmd-sidebar-recent-row">
                   <button
@@ -99,10 +92,16 @@ export function Sidebar({ onResizeHandleMouseDown }: { onResizeHandleMouseDown: 
                     <FileText size={12} strokeWidth={1.5} style={{ flexShrink: 0 }} />
                     <span className="peekmd-sidebar-recent-title">
                       {r.title || stemName(r.path)}
-                      {qualifier && <span className="peekmd-sidebar-qualifier"> {qualifier}</span>}
+                      {folder && <span className="peekmd-sidebar-qualifier"> {`{${folder}}`}</span>}
                     </span>
                     <span className="peekmd-sidebar-recent-time">{timeAgo(r.closedAt)}</span>
                   </button>
+                  <button
+                    className="peekmd-sidebar-recent-remove"
+                    type="button"
+                    aria-label={`Remove ${r.title || stemName(r.path)} from recently closed`}
+                    onClick={() => removeRecent(r.path)}
+                  >×</button>
                 </li>
               );
             })}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatHome, stemName, disambiguator } from './paths';
+import { formatHome, stemName, parentFolder } from './paths';
 
 describe('formatHome', () => {
   it('replaces a /Users/<name> prefix with ~', () => {
@@ -29,38 +29,24 @@ describe('stemName', () => {
   });
 });
 
-describe('disambiguator', () => {
-  it('returns null when the stem is unique', () => {
-    const paths = ['/a/PeekMD/README.md', '/b/jiracli/CHANGELOG.md'];
-    expect(disambiguator(paths, '/a/PeekMD/README.md')).toBeNull();
+describe('parentFolder', () => {
+  it('returns the immediate parent directory name', () => {
+    expect(parentFolder('/a/PeekMD/README.md')).toBe('PeekMD');
   });
 
-  it('returns the immediate parent when it disambiguates', () => {
-    const paths = ['/a/PeekMD/README.md', '/b/jiracli/README.md'];
-    expect(disambiguator(paths, '/a/PeekMD/README.md')).toBe('(PeekMD)');
-    expect(disambiguator(paths, '/b/jiracli/README.md')).toBe('(jiracli)');
+  it('returns the immediate parent even for deeply nested paths', () => {
+    expect(parentFolder('/projects/PeekMD/docs/x.md')).toBe('docs');
   });
 
-  it('climbs to grandparent when the immediate parent is shared', () => {
-    const paths = ['/projects/PeekMD/README.md', '/projects/jiracli/README.md'];
-    // Immediate parents are different — PeekMD vs jiracli — so depth 1 suffices.
-    expect(disambiguator(paths, '/projects/PeekMD/README.md')).toBe('(PeekMD)');
+  it('returns empty string for a bare filename with no parent', () => {
+    expect(parentFolder('README.md')).toBe('');
   });
 
-  it('uses grandparent when parents are identical', () => {
-    const paths = ['/work/src/README.md', '/personal/src/README.md'];
-    expect(disambiguator(paths, '/work/src/README.md')).toBe('(work/src)');
-    expect(disambiguator(paths, '/personal/src/README.md')).toBe('(personal/src)');
+  it('handles trailing slash gracefully', () => {
+    expect(parentFolder('/a/b/')).toBe('a');
   });
 
-  it('handles three or more duplicates', () => {
-    const paths = ['/a/src/index.md', '/b/src/index.md', '/c/src/index.md'];
-    expect(disambiguator(paths, '/a/src/index.md')).toBe('(a/src)');
-  });
-
-  it('disambiguates against both open and recent paths', () => {
-    // Simulates one open doc and one recent doc sharing a stem.
-    const paths = ['/projects/PeekMD/README.md', '/projects/jiracli/README.md'];
-    expect(disambiguator(paths, '/projects/PeekMD/README.md')).toBe('(PeekMD)');
+  it('handles a relative two-segment path', () => {
+    expect(parentFolder('a/b.md')).toBe('a');
   });
 });

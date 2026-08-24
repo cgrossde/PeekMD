@@ -89,6 +89,12 @@ body {
   .markdown-body { padding: 15px; }
 }
 
+/* Tailwind preflight resets list-style to none; restore bullets/numbers inside markdown. */
+.markdown-body ul { list-style-type: disc; }
+.markdown-body ol { list-style-type: decimal; }
+.markdown-body ul ul { list-style-type: circle; }
+.markdown-body ul ul ul { list-style-type: square; }
+
 /* Override github-markdown.css variable scoping: that file gates its dark/light
    variable sets inside @media (prefers-color-scheme:…), so they don't fire when
    the user manually picks a theme that differs from the OS setting. These rules
@@ -626,9 +632,28 @@ body {
 [data-theme="dark"] .peekmd-sidebar-close {
   color: #8b949e;
 }
+.peekmd-sidebar-recent-remove {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #57606a;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+.peekmd-sidebar-recent-row:hover .peekmd-sidebar-recent-remove {
+  display: block;
+}
+[data-theme="dark"] .peekmd-sidebar-recent-remove {
+  color: #8b949e;
+}
 .peekmd-sidebar-recent-row {
   list-style: none;
   margin: 1px 4px;
+  display: flex;
+  align-items: center;
 }
 .peekmd-sidebar-recent-btn {
   display: flex;
@@ -643,6 +668,8 @@ body {
   font-size: 12px;
   color: #57606a;
   text-align: left;
+  flex: 1;
+  min-width: 0;
 }
 .peekmd-sidebar-recent-btn:hover {
   background: rgba(0,0,0,0.04);

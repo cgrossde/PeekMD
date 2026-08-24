@@ -5,13 +5,13 @@ import type { Doc } from '../store';
 type Props = {
   doc: Doc;
   active: boolean;
-  qualifier: string | null;
+  folder: string;
   onActivate: () => void;
   onClose: () => void;
   onContext: (e: MouseEvent) => void;
 };
 
-export function SidebarRow({ doc, active, qualifier, onActivate, onClose, onContext }: Props) {
+export function SidebarRow({ doc, active, folder, onActivate, onClose, onContext }: Props) {
   const handleDragStart = useCallback((e: React.DragEvent<HTMLLIElement>) => {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('application/x-peekmd-doc', doc.path);
@@ -52,7 +52,7 @@ export function SidebarRow({ doc, active, qualifier, onActivate, onClose, onCont
     >
       <span className="peekmd-sidebar-row-title">
         {doc.title}
-        {qualifier && <span className="peekmd-sidebar-qualifier"> {qualifier}</span>}
+        {folder && <span className="peekmd-sidebar-qualifier"> {`{${folder}}`}</span>}
         {doc.dirty && <span className="peekmd-dirty-dot" aria-label="modified"> •</span>}
         {doc.removed && <span className="peekmd-removed-badge" aria-label="deleted"> ✕</span>}
       </span>
