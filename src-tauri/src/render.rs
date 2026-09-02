@@ -67,6 +67,9 @@ fn build_options<'a>() -> Options<'a> {
     opts.extension.multiline_block_quotes = true;
     opts.extension.front_matter_delimiter = Some("---".into());
     opts.extension.header_id_prefix = Some("peekmd-".into());
+    // Include task-list classes so the vendored GitHub Markdown CSS can remove
+    // list markers from checkbox items.
+    opts.render.tasklist_classes = true;
     // Phase 2: sourcepos enabled for scroll-to-change
     opts.render.sourcepos = true;
     // `unsafe = true` + `tagfilter = true`: render raw inline HTML (common in
@@ -334,6 +337,7 @@ mod tests {
         assert_eq!(doc.headings[0].id, "peekmd-hello");
         assert_eq!(doc.headings[0].text, "Hello");
         assert!(doc.html.contains("checkbox"), "tasklist extension should render checkboxes: {}", doc.html);
+        assert!(doc.html.contains("class=\"task-list-item\""), "task-list classes should be rendered: {}", doc.html);
 
         std::fs::remove_dir_all(&dir).ok();
     }
