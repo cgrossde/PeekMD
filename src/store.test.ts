@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import type { Persisted } from './lib/persistence';
 
 const defaultRevision = { sha256: 'seed', len: 0, file_id: 'seed:1' };
@@ -43,6 +43,8 @@ beforeEach(() => {
   taskFailure = null;
   seed('/docs/c.md');
 });
+
+afterEach(() => vi.useRealTimers());
 
 describe('document opening order', () => {
   it('adds newly opened documents to the front of the open document list', async () => {
@@ -292,6 +294,43 @@ describe('activate', () => {
     await Promise.resolve();
 
     expect(invoke).not.toHaveBeenCalledWith('render_markdown', expect.anything());
+  });
+
+  it('updates openedAt only when switching to a document', async () => {
+    vi.useFakeTimers();
+    const original = '2020-01-01T00:00:00.000Z';
+    await useStore.getState().openFile('/docs/a.md', { openedAt: original, activate: false });
+    await useStore.getState().openFile('/docs/b.md', { openedAt: original, activate: false });
+    useStore.setState({ activeDocId: '/docs/b.md' });
+
+    const navigatedAt = '2026-09-04T07:00:00.000Z';
+    vi.setSystemTime(new Date(navigatedAt));
+    useStore.getState().activate('/docs/b.md');
+    expect(useStore.getState().openDocs.find(d => d.path === '/docs/b.md')?.openedAt).toBe(original);
+
+    useStore.getState().activate('/docs/a.md');
+    expect(useStore.getState().openDocs.find(d => d.path === '/docs/a.md')?.openedAt).toBe(navigatedAt);
+    expect(useStore.getState().openDocs.find(d => d.path === '/docs/b.md')?.openedAt).toBe(original);
+  });
+
+  it('preserves persisted openedAt when restoring the active document', async () => {
+    vi.useFakeTimers();
+    const original = '2020-01-01T00:00:00.000Z';
+    loadState.mockResolvedValue({
+      version: 2,
+      openDocs: ['/docs/a.md'],
+      openedAt: { '/docs/a.md': original },
+      activeDoc: '/docs/a.md',
+      rightPaneDoc: null,
+      recentlyViewed: [],
+      scrollPositions: {},
+      ui: { sidebarVisible: true, tocVisible: true, themeOverride: null },
+    });
+    vi.setSystemTime(new Date('2026-09-04T07:00:00.000Z'));
+
+    await useStore.getState().hydrateFromDisk();
+
+    expect(useStore.getState().openDocs[0].openedAt).toBe(original);
   });
 });
 describe('task checkbox updates', () => {

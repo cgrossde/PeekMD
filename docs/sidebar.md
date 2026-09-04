@@ -62,7 +62,7 @@ The close button (`×`) is visible on hover. Clicking it calls `store.close(path
 
 ### Automatic open-document pruning
 
-The open-document list has a target size of 10. When it grows beyond 10, the store moves the oldest non-active documents whose `openedAt` is more than five days old to `recentlyViewed`, oldest first, until the target is reached or no more eligible documents remain. Documents opened five days ago or less remain open even when that temporarily leaves more than 10 rows.
+The open-document list has a target size of 10. Each document's `openedAt` is set when it is first opened and refreshed when the user navigates to it. When the list grows beyond 10, the store moves the oldest non-active documents whose `openedAt` is more than five days old to `recentlyViewed`, oldest first, until the target is reached or no more eligible documents remain. Restoring documents from disk does not refresh their timestamps. Documents opened or navigated to five days ago or less remain open even when that temporarily leaves more than 10 rows.
 
 Moved and manually closed documents are added to `recentlyViewed` with a `viewedAt` timestamp. The list is capped at 20 entries.
 
@@ -81,7 +81,7 @@ When two or more documents in the combined open + recently-viewed pool share the
 
 If two files share an identical full path, the loop caps at the total parent-segment count to avoid infinite recursion and returns whatever suffix it reached.
 
-**Rendering**: The parent folder is rendered below the title when disambiguation is needed, without braces. The relative opened timestamp is rendered on the right of each open-document row; recently-viewed rows use the same right-aligned layout for their viewed timestamp. Qualifiers are styled at opacity 0.45, font-size 11px, and are not shown at all when `disambiguator()` returns `null`.
+**Rendering**: The parent folder is rendered below the title when disambiguation is needed, without braces. The relative opened-or-last-navigated timestamp is rendered on the right of each open-document row; recently-viewed rows use the same right-aligned layout for their viewed timestamp. Qualifiers are styled at opacity 0.45, font-size 11px, and are not shown at all when `disambiguator()` returns `null`.
 
 ## Resizable sidebar
 

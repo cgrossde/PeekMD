@@ -102,6 +102,11 @@ body {
   cursor: progress;
 }
 
+.markdown-body .task-list-item-checkbox {
+  width: 1.15em;
+  height: 1.15em;
+}
+
 @media (max-width: 767px) {
   .markdown-body { padding: 15px; }
 }

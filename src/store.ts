@@ -66,7 +66,7 @@ export type StoreState = {
   navForward: DocId[];
   openFile: (path: string, options?: { pushHistory?: boolean; activate?: boolean; prepend?: boolean; openedAt?: string; prune?: boolean }) => Promise<void>;
   openMany: (paths: string[]) => Promise<void>;
-  activate: (id: DocId, options?: { pushHistory?: boolean }) => void;
+  activate: (id: DocId, options?: { pushHistory?: boolean; updateOpenedAt?: boolean }) => void;
   close: (id: DocId) => void;
   closeOthers: (id: DocId) => void;
   reopenViewed: (path: string) => Promise<void>;
@@ -162,10 +162,14 @@ export const useStore = create<StoreState>()((set, get) => ({
   activate: (id, opts) => {
     const { activeDocId, navBack, openDocs } = get();
     const pushHistory = opts?.pushHistory !== false;
+    const updateOpenedAt = opts?.updateOpenedAt !== false && activeDocId !== id;
+    const navigatedAt = updateOpenedAt ? new Date().toISOString() : undefined;
     const wasDirty = openDocs.find(d => d.path === id)?.dirty === true;
     set(s => ({
       activeDocId: id,
-      openDocs: s.openDocs.map(d => d.path === id ? { ...d, dirty: false } : d),
+      openDocs: s.openDocs.map(d => d.path === id
+        ? { ...d, ...(navigatedAt ? { openedAt: navigatedAt } : {}), dirty: false }
+        : d),
       navBack: pushHistory && activeDocId && activeDocId !== id ? [...navBack, activeDocId] : s.navBack,
       navForward: pushHistory ? [] : s.navForward,
     }));
@@ -331,11 +335,8 @@ export const useStore = create<StoreState>()((set, get) => ({
     const validPaths: string[] = [];
     for (const p of persisted.openDocs) {
       try {
-        // pushHistory: false — restoring docs is not user navigation and must
-        // not seed navBack/navForward (history starts clean every session).
-        // activate: false — restoring must not steal focus from a file opened
-        // explicitly this launch (CLI arg / Finder / open-files), which races
-        // hydration and sets activeDocId first.
+        // Restoring docs is not user navigation and must not seed history or
+        // refresh their persisted openedAt timestamps.
         await get().openFile(p, { pushHistory: false, activate: false, prepend: false, openedAt: persisted.openedAt[p] ?? new Date().toISOString(), prune: false });
         validPaths.push(p);
       } catch { /* missing file — skip silently */ }
@@ -343,7 +344,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     // Restore the persisted active doc ONLY if no explicit open already claimed
     // focus this launch. An explicitly opened file must always win.
     if (get().activeDocId === null && persisted.activeDoc && validPaths.includes(persisted.activeDoc)) {
-      get().activate(persisted.activeDoc, { pushHistory: false });
+      get().activate(persisted.activeDoc, { pushHistory: false, updateOpenedAt: false });
     }
     get().pruneOpenDocuments();
     // Defensive reset: guarantees a clean history regardless of the path above.

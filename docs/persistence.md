@@ -126,7 +126,7 @@ hydrateFromDisk: async () => {
   }
   // 3. Restore activeDoc only if it was successfully opened.
   if (persisted.activeDoc && validPaths.includes(persisted.activeDoc)) {
-    get().activate(persisted.activeDoc, { pushHistory: false });
+    get().activate(persisted.activeDoc, { pushHistory: false, updateOpenedAt: false });
   }
   get().pruneOpenDocuments();
   // 4. Defensive reset: guarantees navBack/navForward are empty regardless
@@ -139,7 +139,7 @@ Key behaviours:
 
 - **Missing files trigger an info toast.** If any persisted paths no longer exist, they are skipped and a one-time info toast is shown with the count (e.g. `"2 file(s) missing from last session"`). The missing path is omitted from `validPaths`.
 - **UI state is applied before docs are opened.** This prevents a visible layout shift from the defaults.
-- **Restore preserves order and timestamps.** Each restored document is appended in its saved display order and receives its persisted `openedAt` value; older state without that value defaults to the current time. Pruning runs after the persisted active document is restored, so it never removes the active document.
+- **Restore preserves order and timestamps.** Each restored document is appended in its saved display order and receives its persisted `openedAt` value; older state without that value defaults to the current time. Restoring the active document does not refresh `openedAt`; the timestamp changes only when the user navigates to an open document. Pruning runs after the persisted active document is restored, so it never removes the active document.
 - **`paletteOpen` and `findOpen` are forced to `false`.** These are transient UI states that should never be open at launch even if a crash left them `true` in the store.
 - **`ui.themeOverride` is applied by `App.tsx`, not here.** `hydrateFromDisk` only loads the value into the store; a separate `useStore.subscribe` in `App.tsx` calls `applyTheme` whenever `ui.themeOverride` changes (including the change hydration itself causes), so the persisted override actually takes effect after a relaunch. See [Theme](#theme) below.
 
@@ -168,7 +168,7 @@ const unsubSystemTheme = watchSystemTheme(() => {
 | `openDocs` (paths) | Yes | Stored as ordered array of absolute paths |
 | `activeDoc` | Yes | |
 | `rightPaneDoc` | Yes (always `null`) | Phase 3 slot |
-| `openedAt` | Yes | ISO 8601 open timestamp by absolute path |
+| `openedAt` | Yes | ISO 8601 timestamp for when the document was opened or last navigated to, by absolute path |
 | `recentlyViewed` | Yes | Up to 20 entries with ISO timestamps |
 | `ui.sidebarVisible` | Yes | |
 | `ui.tocVisible` | Yes | |
@@ -177,7 +177,7 @@ const unsubSystemTheme = watchSystemTheme(() => {
 | `ui.findOpen` | No | Reset to `false` on restore |
 | `navBack` | No | In-memory only |
 | `navForward` | No | In-memory only |
-| `openDocs[*].openedAt` | Yes (via `openedAt`) | Used for five-day age-based pruning |
+| `openDocs[*].openedAt` | Yes (via `openedAt`) | Used for five-day age-based pruning; refreshed on user navigation, not session restore |
 | `openDocs[*].html` | No | Re-rendered on open |
 | `openDocs[*].headings` | No | Re-extracted on open |
 | `openDocs[*].dirty` | No | Starts `false` on open |
