@@ -121,7 +121,7 @@ useEffect(() => {
 
 Heading elements are looked up by `h.id` directly (e.g. `document.getElementById('peekmd-my-heading')`).
 
-Clicking a TOC link scrolls the document using `scrollTo` on `.peekmd-doc-area` with `behavior: 'smooth'`, and immediately sets `activeId` to that heading's id without waiting for the observer.
+Clicking a TOC link scrolls the document using `scrollTo` on `.peekmd-doc-scroll` with `behavior: 'smooth'`, and immediately sets `activeId` to that heading's id without waiting for the observer.
 
 ## Keyboard shortcut: Command+Shift+T
 

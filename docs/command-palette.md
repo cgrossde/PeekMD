@@ -2,7 +2,7 @@
 
 ## Overview
 
-The command palette is a single-input overlay that provides fast access to open documents, recently closed documents, heading anchors in the active document, and named commands.
+The command palette is a single-input overlay that provides fast access to open documents, recently viewed documents, heading anchors in the active document, and named commands.
 
 - **Open**: `⌘K`
 - **Close**: `⌘K` again, `Escape`, or click the backdrop
@@ -22,11 +22,11 @@ One entry per currently open document. Selecting an entry activates that documen
 - **Label**: the document title
 - **Secondary**: the full file path
 
-### 2. Recently closed documents (`kind: recent`)
+### 2. Recently viewed documents (`kind: recent`)
 
-One entry per entry in `recentlyClosed` (the store's `RecentEntry[]` list). Selecting an entry reopens the file.
+One entry per entry in `recentlyViewed` (the store's `RecentEntry[]` list). Selecting an entry reopens the file.
 
-- **Label**: `Reopen: <title or filename stem>`
+- **Label**: `View: <title or filename stem>`
 - **Secondary**: the full file path
 
 ### 3. Headings in the active document (`kind: heading`)

@@ -131,6 +131,13 @@ Steps:
 Non-markdown links — HTTP/HTTPS URLs, PDFs, plain text files, etc. — always
 reach step 5 of the routing logic and open in the browser.
 
+### Link destination preview
+
+Hovering a link in the document content shows its complete `href` in the
+status bar at the bottom of the middle section. The bar keeps its border and
+background when no link is hovered, and clicking still follows the routing
+rules above.
+
 ---
 
 ## Drag-out to a detached window
@@ -224,5 +231,5 @@ listen<{ path: string }>('detached-window-closed', (e) => {
    that the detached window's `openFile` call acquired.
 2. If the document is already open in the main window, does nothing further.
 3. If the document is not open in the main window, and is not already in
-   `recentlyClosed`, adds a `RecentEntry` (using `stemName(path)` as the
-   title) to the front of `recentlyClosed`, capped at 20 entries.
+   `recentlyViewed`, adds a `RecentEntry` (using `stemName(path)` as the
+   title) to the front of `recentlyViewed`, capped at 20 entries.

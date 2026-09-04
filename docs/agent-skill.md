@@ -1,6 +1,6 @@
 # Agent Skill
 
-PeekMD ships a skill for AI coding agents (Claude Code, Oh-My-Pi / OMP, OpenCode). Once installed the skill lets agents open Markdown files, query what is currently open or recently closed, and disambiguate filenames — all without interrupting the user's focus.
+PeekMD ships a skill for AI coding agents (Claude Code, Oh-My-Pi / OMP, OpenCode). Once installed the skill lets agents open Markdown files, query what is currently open or recently viewed, and disambiguate filenames — all without interrupting the user's focus.
 
 ## peekmd-cli
 
@@ -34,9 +34,10 @@ Output (pretty-printed JSON):
 ```json
 {
   "openDocs": ["<abs-path>", "..."],
+  "openedAt": { "<abs-path>": "<ISO8601>" },
   "activeDoc": "<abs-path> or null",
-  "recentlyClosed": [
-    { "path": "<abs-path>", "title": "<stem>", "closedAt": "<ISO8601>" }
+  "recentlyViewed": [
+    { "path": "<abs-path>", "title": "<stem>", "viewedAt": "<ISO8601>" }
   ]
 }
 ```

@@ -30,10 +30,11 @@ const store = new LazyStore('state.json');
 ```ts
 type Persisted = {
   version: number;           // must equal 2; any other value → start fresh
-  openDocs: string[];        // absolute paths in display order
+  openDocs: string[];        // absolute paths in display order; newest opened first during normal use
+  openedAt: Record<string, string>; // ISO 8601 timestamp by absolute path
   activeDoc: string | null;  // absolute path of the active document
   rightPaneDoc: null;        // always null; slot reserved for Phase 3 split view
-  recentlyClosed: PersistedRecentEntry[];
+  recentlyViewed: PersistedRecentEntry[];
   scrollPositions: Record<string, number>;  // scrollTop per absolute path
   ui: PersistedUi;
 };
@@ -41,7 +42,7 @@ type Persisted = {
 type PersistedRecentEntry = {
   path: string;
   title: string;
-  closedAt: string;          // ISO 8601 timestamp
+  viewedAt: string;          // ISO 8601 timestamp
 };
 
 type PersistedUi = {
@@ -70,7 +71,7 @@ const v = await store.get<number>('version');
 if (v !== CURRENT_VERSION) return null;
 ```
 
-`CURRENT_VERSION` is `2`. Any other value — including `undefined` (first launch) or a future integer — returns `null`. The caller (`hydrateFromDisk`) treats `null` as "no state to restore" and starts fresh. There is no migration path yet; the old file is left in place (the plugin will overwrite it on the next `scheduleSave`).
+`CURRENT_VERSION` is `2`. Older versioned state still loads; missing `openedAt` values default to the current time, and the legacy `recentlyClosed` key/`closedAt` field are read once and normalized to `recentlyViewed`/`viewedAt`. New saves use only the current field names.
 
 ## Write debounce
 
@@ -83,9 +84,10 @@ export function scheduleSave(getState: () => Persisted): void {
     const s = getState();
     await store.set('version', s.version);
     await store.set('openDocs', s.openDocs);
+    await store.set('openedAt', s.openedAt);
     await store.set('activeDoc', s.activeDoc);
     await store.set('rightPaneDoc', null);
-    await store.set('recentlyClosed', s.recentlyClosed);
+    await store.set('recentlyViewed', s.recentlyViewed);
     await store.set('scrollPositions', s.scrollPositions);
     await store.set('ui', s.ui);
     await store.save();
@@ -106,12 +108,19 @@ hydrateFromDisk: async () => {
   // 1. Apply UI state immediately (sidebar visibility, TOC, theme override).
   //    Force paletteOpen and findOpen to false — they should never survive a restart.
   set(s => ({ ui: { ...s.ui, ...persisted.ui, paletteOpen: false, findOpen: false },
-              recentlyClosed: persisted.recentlyClosed }));
+              recentlyViewed: persisted.recentlyViewed }));
   // 2. Open each persisted path sequentially, without touching nav history.
+  //    prepend: false preserves the saved display order during restore.
   const validPaths: string[] = [];
   for (const p of persisted.openDocs) {
     try {
-      await get().openFile(p, { pushHistory: false });
+      await get().openFile(p, {
+        pushHistory: false,
+        activate: false,
+        prepend: false,
+        openedAt: persisted.openedAt[p] ?? new Date().toISOString(),
+        prune: false,
+      });
       validPaths.push(p);
     } catch { /* file missing — skip silently */ }
   }
@@ -119,6 +128,7 @@ hydrateFromDisk: async () => {
   if (persisted.activeDoc && validPaths.includes(persisted.activeDoc)) {
     get().activate(persisted.activeDoc, { pushHistory: false });
   }
+  get().pruneOpenDocuments();
   // 4. Defensive reset: guarantees navBack/navForward are empty regardless
   //    of how many docs were opened above.
   set({ navBack: [], navForward: [] });
@@ -129,7 +139,7 @@ Key behaviours:
 
 - **Missing files trigger an info toast.** If any persisted paths no longer exist, they are skipped and a one-time info toast is shown with the count (e.g. `"2 file(s) missing from last session"`). The missing path is omitted from `validPaths`.
 - **UI state is applied before docs are opened.** This prevents a visible layout shift from the defaults.
-- **`pushHistory: false` throughout restore.** `openFile` takes an optional `{ pushHistory }` option (default `true`); hydration passes `false` for every restored doc, and the final `activate` call also passes `false`. Combined with an unconditional `navBack`/`navForward` reset at the end, restoring N open docs never seeds navigation history — it starts clean every session, per the SPEC. (Earlier versions called the history-less `activate` only once at the end, but `openFile` itself always pushed history internally while opening each doc in the loop, so `navBack` ended up with `N-1` stale entries. This is now closed at both the source and with a defensive reset.)
+- **Restore preserves order and timestamps.** Each restored document is appended in its saved display order and receives its persisted `openedAt` value; older state without that value defaults to the current time. Pruning runs after the persisted active document is restored, so it never removes the active document.
 - **`paletteOpen` and `findOpen` are forced to `false`.** These are transient UI states that should never be open at launch even if a crash left them `true` in the store.
 - **`ui.themeOverride` is applied by `App.tsx`, not here.** `hydrateFromDisk` only loads the value into the store; a separate `useStore.subscribe` in `App.tsx` calls `applyTheme` whenever `ui.themeOverride` changes (including the change hydration itself causes), so the persisted override actually takes effect after a relaunch. See [Theme](#theme) below.
 
@@ -158,8 +168,8 @@ const unsubSystemTheme = watchSystemTheme(() => {
 | `openDocs` (paths) | Yes | Stored as ordered array of absolute paths |
 | `activeDoc` | Yes | |
 | `rightPaneDoc` | Yes (always `null`) | Phase 3 slot |
-| `recentlyClosed` | Yes | Up to 20 entries with ISO timestamps |
-| `scrollPositions` | Yes | `scrollTop` per absolute path; restored on session start |
+| `openedAt` | Yes | ISO 8601 open timestamp by absolute path |
+| `recentlyViewed` | Yes | Up to 20 entries with ISO timestamps |
 | `ui.sidebarVisible` | Yes | |
 | `ui.tocVisible` | Yes | |
 | `ui.themeOverride` | Yes | `null` means follow system |
@@ -167,6 +177,7 @@ const unsubSystemTheme = watchSystemTheme(() => {
 | `ui.findOpen` | No | Reset to `false` on restore |
 | `navBack` | No | In-memory only |
 | `navForward` | No | In-memory only |
+| `openDocs[*].openedAt` | Yes (via `openedAt`) | Used for five-day age-based pruning |
 | `openDocs[*].html` | No | Re-rendered on open |
 | `openDocs[*].headings` | No | Re-extracted on open |
 | `openDocs[*].dirty` | No | Starts `false` on open |

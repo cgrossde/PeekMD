@@ -24,7 +24,7 @@ PeekMD is registered as the **default** handler for `.md`, `.markdown`, `.mdown`
 | Topic | File |
 | --- | --- |
 | Keyboard shortcuts | [keyboard-shortcuts.md](keyboard-shortcuts.md) |
-| Sidebar — open docs, recently closed, resize, disambiguation | [sidebar.md](sidebar.md) |
+| Sidebar — open docs, recently viewed, resize, disambiguation | [sidebar.md](sidebar.md) |
 | Live reload and scroll-to-change | [live-reload.md](live-reload.md) |
 | Session persistence | [persistence.md](persistence.md) |
 | Command palette | [command-palette.md](command-palette.md) |
@@ -78,7 +78,7 @@ full set of mocked IPC commands.
 
 ## Agent skill (peekmd-cli)
 
-PeekMD ships a skill for AI coding agents (Claude Code, Oh-My-Pi, OpenCode). Once installed, agents can open files and query what is currently open or recently closed without any manual steps.
+PeekMD ships a skill for AI coding agents (Claude Code, Oh-My-Pi, OpenCode). Once installed, agents can open files and query what is currently open or recently viewed without any manual steps.
 
 ```bash
 # Query open and recent files (app need not be running)

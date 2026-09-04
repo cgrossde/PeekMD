@@ -28,6 +28,7 @@ fn build_options<'a>() -> Options<'a> {
     opts.extension.front_matter_delimiter = Some("---".into());
     opts.extension.header_id_prefix = Some("peekmd-".into());
     opts.render.sourcepos = true;
+    opts.render.tasklist_classes = true;
     opts.render.r#unsafe = true;
     opts
 }
@@ -71,6 +72,12 @@ fn build_options<'a>() -> Options<'a> {
 | `greentext` | Alters blockquote semantics in ways that break standard Markdown |
 | `spoiler` / `subtext` / `cjk_friendly_emphasis` | Niche; can be added without API changes later |
 
+## Interactive task checkboxes
+
+Comrak task-list markers render as enabled native checkboxes. Each generated input carries `data-task-line`, `data-task-column`, and an accessible label derived from the parser's marker position. Raw HTML checkboxes and lookalike markers remain inert.
+
+The frontend sends the opened file's `FileRevision` with the marker coordinates. Rust reopens the path without truncation, validates the exact comrak task node and current revision, then uses one Unix `write_at` call to replace only the marker byte. Checked markers canonicalize to lowercase `x`; unchecking `X` writes an ASCII space. Revision, marker, inode, and post-write verification failures return a conflict and never retry.
+
 ## sourcepos and scroll-to-change
 
 `opts.render.sourcepos = true` instructs comrak to emit a `data-sourcepos="startLine:startCol-endLine:endCol"` attribute on every block-level HTML element. For example:
@@ -85,8 +92,7 @@ This attribute is the foundation of the scroll-to-change algorithm in `src/lib/s
 The comparison is purely DOM-level — no second Rust pass, no source line map. The `data-sourcepos` attribute carries the mapping from the single comrak invocation.
 
 ## Images
-
-comrak emits `<img src="...">` verbatim from the Markdown source. A relative path (`./img/shot.png`), an absolute filesystem path, or a `file://` URI is meaningless to the WebView, whose origin is the app bundle — not the folder the open document lives in. There is no Rust-side rewriting of image URLs; instead, `src/lib/mdImages.ts` (`resolveMarkdownImages(container, docPath)`) walks every `<img>` in the rendered DOM after each render (initial open, doc switch, and every live-reload re-render — wired via a `useLayoutEffect` on `activeDoc.path`/`activeDoc.html` in `App.tsx`) and rewrites any src that isn't already loadable (`http(s):`, `data:`, `blob:`, `asset:` are left untouched) into a `convertFileSrc`-generated URL, resolved against `docPath`'s directory.
+comrak emits `<img src="...">` from the Markdown source. Rust stamps local image URLs with the source file's current image mtime during rendering; `src/lib/mdImages.ts` then resolves local paths to Tauri asset URLs after each render. Remote and data URLs remain unchanged.
 
 This requires Tauri's asset protocol, configured in `tauri.conf.json`:
 
@@ -102,35 +108,9 @@ Remote `http(s)` images are deliberately **not** proxied or fetched specially �
 
 ## Heading extraction
 
-`extract_headings(html: &str) -> Vec<Heading>` is a manual HTML scanner, not a regex. It walks the HTML byte by byte, identifies `<h1>`..`<h6>` opening tags, extracts the `id` attribute (which comrak has already set to `peekmd-{slug}`), finds the matching close tag, and strips HTML from the inner content via `strip_tags`.
+`extract_headings` walks the single comrak AST used for HTML formatting. It collects heading text with comrak's `collect_text`, generates matching ids with an `Anchorizer`, and preserves document order. This keeps TOC and command-palette targets aligned with the rendered heading ids without rescanning HTML.
 
-```rust
-pub struct Heading {
-    pub id: String,    // e.g. "peekmd-getting-started"
-    pub level: u8,     // 1–6
-    pub text: String,  // plain text, HTML tags stripped
-}
-```
-
-`strip_tags` is a simple character-level scanner — not a regex dependency — that removes anything between `<` and `>`:
-
-```rust
-fn strip_tags(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut in_tag = false;
-    for c in s.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => out.push(c),
-            _ => {}
-        }
-    }
-    out
-}
-```
-
-Headings are used by the TOC component (`src/components/TOC.tsx`) to render the right-rail navigation and by the command palette for "Jump to: \<heading\>" items. Only H2 and H3 appear in the TOC rail; the palette surfaces up to H3.
+Headings are used by the TOC component (`src/components/TOC.tsx`) to render the right-rail navigation and by the command palette for "Jump to: <heading>" items. Only H2 and H3 appear in the TOC rail; the palette surfaces up to H3.
 
 ## RenderedDoc
 
@@ -143,10 +123,12 @@ pub struct RenderedDoc {
     pub path: String,         // absolute path, as passed in
     pub headings: Vec<Heading>,
     pub mtime: u64,           // modification time, Unix seconds
+    pub revision: FileRevision,
+    pub local_images: Vec<String>,
 }
 ```
 
-`mtime` is read from `std::fs::metadata(&path).modified()` after rendering. It is used by the frontend to detect whether a `file-changed` event carries a newer mtime than the currently rendered version.
+`mtime` and `revision` come from the same opened file snapshot. `revision.sha256` hashes the exact UTF-8 bytes, `revision.len` records their byte length, and `revision.file_id` stores the Unix device:inode pair as a string. The frontend uses the revision to reject stale checkbox writes while the watcher continues to use `mtime` for change notifications.
 
 `title` is the file stem (e.g., `README` for `README.md`) derived from `path.file_stem()`. There is no front-matter title extraction — PeekMD strips front matter but does not parse it.
 

@@ -10,7 +10,8 @@ Frontend invocations use `invoke` from `@tauri-apps/api/core`.
 
 | Command | Parameters | Return type | Description |
 | --- | --- | --- | --- |
-| `render_markdown` | `path: PathBuf` | `Result<RenderedDoc, RenderError>` | Read file, run comrak, extract headings, stat mtime. Rejects non-Markdown extensions. |
+| `render_markdown` | `path: PathBuf` | `Result<RenderedDoc, RenderError>` | Open one file snapshot, run comrak, extract headings and local images, and return its mtime and exact revision. Rejects non-Markdown extensions. |
+| `set_task_checked` | `path: PathBuf, taskLine: usize, taskColumn: usize, expectedRevision: FileRevision, checked: bool` | `Result<TaskEditResult, String>` | Validate one parser-owned task marker, then change exactly its one ASCII marker byte. Returns `updated` or a revision/marker/file conflict; never rewrites the whole file. |
 | `take_pending_paths` | — | `Vec<PathBuf>` | Drain the `PendingPaths` state (CLI args / macOS Open With) collected before the webview loaded. Called once on mount as a fallback to the `peekmd://open-files` event. |
 | `watch_paths` | `paths: Vec<PathBuf>` | `Result<(), String>` | Register paths with `WatcherState`. Watches each path's parent directory with `NonRecursive` mode. |
 | `unwatch` | `path: PathBuf` | `Result<(), String>` | Unregister a path from `WatcherState`. Unwatches the parent directory when ref count reaches zero. |
@@ -29,12 +30,32 @@ Frontend invocations use `invoke` from `@tauri-apps/api/core`.
 ### RenderedDoc shape
 
 ```rust
+pub struct FileRevision {
+    pub sha256: String,
+    pub len: u64,
+    pub file_id: String, // Unix device:inode pair
+}
+
 pub struct RenderedDoc {
     pub html: String,
     pub title: String,
     pub path: String,
     pub headings: Vec<Heading>,
     pub mtime: u64,
+    pub revision: FileRevision,
+    pub local_images: Vec<String>,
+}
+
+pub enum TaskEditResult {
+    Updated { document: RenderedDoc },
+    Conflict { document: RenderedDoc, reason: TaskEditConflict },
+}
+
+pub enum TaskEditConflict {
+    RevisionChanged,
+    MarkerChanged,
+    FileReplaced,
+    ConcurrentWrite,
 }
 
 pub struct Heading {
@@ -82,6 +103,8 @@ app.on_menu_event(|app, event| {
 });
 ```
 
+There is no `fs:*` permission and `tauri-plugin-fs` is not registered — `render_markdown` and `set_task_checked` use their opened Rust file handles for exact snapshot validation and one-byte writes. Custom Rust commands own this filesystem access; granting the webview generic filesystem capability would add no protection.
+
 This indirection is necessary because `popup()` requires a `Window` handle obtained via `app.get_webview_window("main")`, and Tauri's menu event callback does not carry per-item closure state.
 
 ## Capabilities
@@ -100,7 +123,7 @@ Capabilities are declared in `src-tauri/capabilities/default.json` and apply to 
 | `clipboard-manager:allow-write-html` | `copy_html` command (HTML + plain text) |
 | `playwright:default` | Debug-only automation socket (compiled in always; only initialised in `#[cfg(debug_assertions)]` builds) |
 
-There is no `fs:*` permission and `tauri-plugin-fs` is not registered — every file read goes through `render_markdown`'s `std::fs::read_to_string`, not the generic `fs` plugin, so granting the webview a filesystem-scoped capability bought nothing and was removed. There is likewise no `core:window:allow-set-title` — nothing calls `WebviewWindow::set_title`; the window title is always "PeekMD".
+There is no `fs:*` permission and `tauri-plugin-fs` is not registered — `render_markdown` and `set_task_checked` use their opened Rust file handles for exact snapshot validation and one-byte writes. Custom Rust commands own this filesystem access; granting the webview generic filesystem capability would add no protection. There is likewise no `core:window:allow-set-title` — nothing calls `WebviewWindow::set_title`; the window title is always "PeekMD".
 
 ## Content Security Policy and the asset protocol
 

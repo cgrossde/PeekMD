@@ -9,7 +9,7 @@ These handlers live in `src/lib/keybindings.ts`, installed once by `installGloba
 | Chord | Action | Notes |
 | --- | --- | --- |
 | `⌘O` | Open file picker | Accepts `.md`, `.markdown`, `.mdown`, `.mkd`. Multi-select enabled. |
-| `⌘W` | Close active document | No-op when no document is open. Sends the doc to Recently Closed. |
+| `⌘W` | Close active document | No-op when no document is open. Sends the doc to Recently Viewed. |
 | `⌘R` | Force re-render | Invokes `render_markdown` on the active file, bypassing the watcher. No-op when no document is open. |
 | `⌘\` | Toggle sidebar | Calls `setSidebar(!sidebarVisible)`. |
 | `⌘⇧D` | Toggle theme | Flips `ui.themeOverride` between `'light'` and `'dark'`; no shortcut returns to `null` (system). |

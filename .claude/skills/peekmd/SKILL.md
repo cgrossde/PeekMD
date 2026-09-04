@@ -4,7 +4,7 @@ description: >
   PeekMD is the Markdown viewer for this machine. Use it whenever the user asks
   to open, view, or preview a Markdown file. It replaces Marked. Also use it to
   resolve ambiguous file references ("which README do you mean?") by checking
-  what the user already has open or recently closed.
+  what the user already has open or recently viewed.
 ---
 
 # PeekMD — Markdown Viewer Skill
@@ -37,7 +37,7 @@ Resolution order:
 
 ## Subcommands
 
-### `list` — query open and recent files
+### `list` — query open and recently viewed files
 
 ```bash
 peekmd-cli list
@@ -48,9 +48,10 @@ Returns JSON:
 ```json
 {
   "openDocs":      ["<abs-path>", ...],
+  "openedAt":      { "<abs-path>": "<ISO8601>" },
   "activeDoc":     "<abs-path>" | null,
-  "recentlyClosed": [
-    { "path": "<abs-path>", "title": "<stem>", "closedAt": "<ISO8601>" },
+  "recentlyViewed": [
+    { "path": "<abs-path>", "title": "<stem>", "viewedAt": "<ISO8601>" },
     ...
   ]
 }
@@ -59,7 +60,7 @@ Returns JSON:
 Use this to:
 - Show the user what they have open without asking.
 - Resolve an ambiguous filename — if the user says "open the README" and `list` shows two READMEs, ask which one.
-- Suggest recently closed files as candidates when the user asks for "the file I was looking at earlier".
+- Suggest recently viewed files as candidates when the user asks for "the file I was looking at earlier".
 
 ### `open <path...>` — open one or more files
 
@@ -75,7 +76,7 @@ peekmd-cli open /abs/path/to/file.md /another/file.md
 ## Resolving ambiguous references
 
 1. Call `peekmd-cli list`.
-2. Search `openDocs` and `recentlyClosed[*].path` for filenames matching the user's description (case-insensitive stem match).
+2. Search `openDocs` and `recentlyViewed[*].path` for filenames matching the user's description (case-insensitive stem match).
 3. If exactly one match → use it.
 4. If multiple matches → ask the user to pick (show path and recency).
 5. If no match → open a file picker or ask the user for the path.

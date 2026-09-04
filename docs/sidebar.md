@@ -1,19 +1,20 @@
 # Sidebar
 
-The sidebar has two sections: **Open Documents** (top) and **Recently Closed** (bottom). It is rendered by `src/components/Sidebar.tsx` and driven entirely by Zustand store state — there is no sidebar-specific backend.
+The sidebar has two sections: **Open Documents** (top) and **Recently Viewed** (bottom). It is rendered by `src/components/Sidebar.tsx` and driven entirely by Zustand store state — there is no sidebar-specific backend.
 
 ```
 ┌─ Open Documents ──────────────┐
 │ ▸ SPEC.md              •  ×   │  ← active row, dirty dot, close on hover
 │   README.md                   │
 │   notes.md          [removed] │  ← removed badge (file deleted from disk)
-├─ Recently Closed ─────────────┤
-│   old-draft.md      just now  │
-│   ideas.md          2h ago    │
+├─ Recently Viewed ─────────────┤
+│   old-draft.md          just now │
+│   ideas.md                 2h ago │
 └───────────────────────────────┘
 ```
 
 ## Open Documents section
+Newly opened documents are prepended to this list, so the most recently opened document appears first. Each row shows how long ago it was opened on the right, with the parent folder below the document title when needed. Activating a document that is already open does not reorder the list. Session restore preserves the persisted display order.
 
 Each row is rendered by `src/components/SidebarRow.tsx`. The row state comes from the `Doc` type in `src/store.ts`:
 
@@ -24,6 +25,7 @@ type Doc = {
   html: string;
   headings: Heading[];
   mtime: number;  // Unix seconds from fs::metadata
+  openedAt: string; // ISO 8601 timestamp
   dirty: boolean;
   removed?: boolean;
 };
@@ -52,17 +54,23 @@ When the `file-removed` event arrives (see [live-reload.md](live-reload.md)), `m
 
 The close button (`×`) is visible on hover. Clicking it calls `store.close(path)`, which:
 
-1. Prepends a `RecentEntry` to `recentlyClosed`, capped at 20.
+1. Prepends a `RecentEntry` to `recentlyViewed`, capped at 20.
 2. Removes the doc from `openDocs`.
 3. Picks a new active doc (the next doc in the list, or the previous if at the end).
 4. Calls `invoke('unwatch', { path })` to stop the file watcher for this path.
 5. Prunes the closed path from `navBack` and `navForward`.
 
+### Automatic open-document pruning
+
+The open-document list has a target size of 10. When it grows beyond 10, the store moves the oldest non-active documents whose `openedAt` is more than five days old to `recentlyViewed`, oldest first, until the target is reached or no more eligible documents remain. Documents opened five days ago or less remain open even when that temporarily leaves more than 10 rows.
+
+Moved and manually closed documents are added to `recentlyViewed` with a `viewedAt` timestamp. The list is capped at 20 entries.
+
 ## Filename disambiguation
 
-When two or more documents in the combined open + recently-closed pool share the same stem name, each row appends a muted qualifier after the title — for example `README (PeekMD)` vs `README (jiracli)`.
+When two or more documents in the combined open + recently-viewed pool share the same stem name, each row appends a muted folder name below the title — for example `README` with `PeekMD` below it vs `README` with `jiracli` below it.
 
-**Pool**: `allPaths` is computed in `Sidebar.tsx` as the union of `openDocs` paths and `recentlyClosed` paths before any row is rendered. This means a name that is unique among currently open docs but clashes with a recently-closed entry is still disambiguated.
+**Pool**: `allPaths` is computed in `Sidebar.tsx` as the union of `openDocs` paths and `recentlyViewed` paths before any row is rendered. This means a name that is unique among currently open docs but clashes with a recently-viewed entry is still disambiguated.
 
 **Algorithm** (`disambiguator()` in `src/lib/paths.ts`):
 
@@ -73,7 +81,7 @@ When two or more documents in the combined open + recently-closed pool share the
 
 If two files share an identical full path, the loop caps at the total parent-segment count to avoid infinite recursion and returns whatever suffix it reached.
 
-**Rendering**: The qualifier is rendered as a `<span className="peekmd-sidebar-qualifier">` immediately after the title text, in both `SidebarRow` (open docs) and the recently-closed list in `Sidebar.tsx`. The qualifier span is styled at opacity 0.45, font-size 11px, and is not shown at all when `disambiguator()` returns `null`.
+**Rendering**: The parent folder is rendered below the title when disambiguation is needed, without braces. The relative opened timestamp is rendered on the right of each open-document row; recently-viewed rows use the same right-aligned layout for their viewed timestamp. Qualifiers are styled at opacity 0.45, font-size 11px, and are not shown at all when `disambiguator()` returns `null`.
 
 ## Resizable sidebar
 
