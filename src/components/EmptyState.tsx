@@ -9,8 +9,8 @@ type Props = {
 };
 
 export function EmptyState({ onPickFile, isDragOver }: Props) {
-  const recents = useStore(s => s.recentlyClosed);
-  const reopenRecent = useStore(s => s.reopenRecent);
+  const recents = useStore(s => s.recentlyViewed);
+  const reopenViewed = useStore(s => s.reopenViewed);
 
   return (
     <div className="peekmd-empty">
@@ -31,21 +31,21 @@ export function EmptyState({ onPickFile, isDragOver }: Props) {
         <div className="peekmd-recent">
           <div className="peekmd-recent-header">
             <Clock size={12} strokeWidth={2} />
-            <span>Recent</span>
+            <span>Recently Viewed</span>
           </div>
           <ul className="peekmd-recent-list">
-            {recents.map((f) => (
-              <li key={f.path}>
+            {recents.map((entry) => (
+              <li key={entry.path}>
                 <button
                   type="button"
                   className="peekmd-recent-item"
-                  onClick={() => void reopenRecent(f.path)}
-                  title={f.path}
+                  onClick={() => void reopenViewed(entry.path)}
+                  title={entry.path}
                 >
                   <FileText size={14} strokeWidth={1.5} className="peekmd-recent-icon" />
-                  <span className="peekmd-recent-title">{f.title || stemName(f.path)}</span>
-                  <span className="peekmd-recent-path">{formatHome(f.path)}</span>
-                  <span className="peekmd-recent-time">{timeAgo(f.closedAt)}</span>
+                  <span className="peekmd-recent-title">{entry.title || stemName(entry.path)}</span>
+                  <span className="peekmd-recent-path">{formatHome(entry.path)}</span>
+                  <span className="peekmd-recent-time">{timeAgo(entry.viewedAt)}</span>
                 </button>
               </li>
             ))}

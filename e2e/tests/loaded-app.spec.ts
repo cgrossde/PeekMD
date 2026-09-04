@@ -8,6 +8,42 @@ test('renders the seeded document title in the topbar and body', async ({ tauriP
   await expect(tauriPage.locator('h1#peekmd-hello')).toContainText('Hello PeekMD');
 });
 
+test('shows the full link target in the status bar on hover', async ({ tauriPage }) => {
+  const link = tauriPage.locator('.markdown-body a[href="https://example.com/reference"]');
+  await link.hover();
+
+  await expect(tauriPage.locator('.peekmd-statusbar')).toHaveClass(/is-active/);
+  await expect(tauriPage.locator('.peekmd-statusbar-link')).toHaveText('https://example.com/reference');
+
+  await tauriPage.locator('.peekmd-sidebar-row').first().hover();
+  await expect(tauriPage.locator('.peekmd-statusbar')).not.toHaveClass(/is-active/);
+});
+
+test('keeps the status bar pinned to the middle content viewport while scrolling', async ({ tauriPage }) => {
+  await tauriPage.evaluate(`(() => {
+    const scroll = document.querySelector('.peekmd-doc-scroll');
+    const spacer = document.createElement('div');
+    spacer.style.height = '2000px';
+    scroll?.append(spacer);
+  })()`);
+
+  const positions = async () => tauriPage.evaluate(`(() => {
+    const area = document.querySelector('.peekmd-doc-area')?.getBoundingClientRect();
+    const status = document.querySelector('.peekmd-statusbar')?.getBoundingClientRect();
+    return { areaBottom: area?.bottom, statusBottom: status?.bottom };
+  })()`);
+  const before = await positions();
+
+  await tauriPage.evaluate(`(() => {
+    const scroll = document.querySelector('.peekmd-doc-scroll');
+    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+  })()`);
+  const after = await positions();
+
+  expect(Math.abs((before.statusBottom ?? 0) - (before.areaBottom ?? 0))).toBeLessThan(1);
+  expect(Math.abs((after.statusBottom ?? 0) - (after.areaBottom ?? 0))).toBeLessThan(1);
+});
+
 test('shows a sidebar entry for the open document', async ({ tauriPage }) => {
   await expect(tauriPage.locator('.peekmd-sidebar')).toBeVisible();
 });

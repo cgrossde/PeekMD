@@ -1,29 +1,69 @@
+use std::fmt::Write as _;
+use std::io::{Read, Seek, SeekFrom};
+use std::os::unix::fs::{FileExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::UNIX_EPOCH;
-use comrak::{format_html_with_plugins, options, parse_document, Anchorizer, Arena, Options};
-use comrak::html::collect_text;
+use comrak::{create_formatter, options, parse_document, Anchorizer, Arena, Options};
+use comrak::html::{collect_text, render_sourcepos};
 use comrak::nodes::{AstNode, NodeValue};
 use comrak::plugins::syntect::SyntectAdapter;
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
-#[derive(serde::Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct FileRevision {
+    pub sha256: String,
+    pub len: u64,
+    pub file_id: String,
+}
+
+#[derive(Serialize, Clone)]
 pub struct Heading {
     pub id: String,
     pub level: u8,
     pub text: String,
 }
 
-#[derive(serde::Serialize, Clone)]
+#[derive(Serialize, Clone)]
 pub struct RenderedDoc {
     pub html: String,
     pub title: String,
     pub path: String,
     pub headings: Vec<Heading>,
     pub mtime: u64,
+    pub revision: FileRevision,
     /// Absolute paths of local images referenced by the document.
     /// Used by the watcher to re-render when an image file changes.
     pub local_images: Vec<String>,
 }
+
+#[derive(Serialize, Clone)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum TaskEditResult {
+    Updated { document: RenderedDoc },
+    Conflict { document: RenderedDoc, reason: TaskEditConflict },
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskEditConflict {
+    RevisionChanged,
+    MarkerChanged,
+    FileReplaced,
+    ConcurrentWrite,
+}
+
+#[derive(Default)]
+pub struct TaskEditState(pub Mutex<()>);
+
+struct FileSnapshot {
+    bytes: Vec<u8>,
+    metadata: std::fs::Metadata,
+    revision: FileRevision,
+}
+
 
 #[derive(thiserror::Error, Debug)]
 pub enum RenderError {
@@ -83,6 +123,44 @@ fn build_options<'a>() -> Options<'a> {
     opts.render.r#unsafe = true;
     opts
 }
+
+create_formatter!(InteractiveHtmlFormatter, {
+    NodeValue::TaskItem(ref nti) => |context, node, entering| {
+        let write_li = node.parent()
+            .map(|parent| matches!(&parent.data().value, NodeValue::List(_)))
+            .unwrap_or(false);
+        if entering {
+            context.cr()?;
+            if write_li {
+                context.write_str("<li")?;
+                if context.options.render.tasklist_classes {
+                    context.write_str(" class=\"task-list-item\"")?;
+                }
+                render_sourcepos(context, node)?;
+                context.write_str(">")?;
+            }
+            context.write_str("<input type=\"checkbox\"")?;
+            if !write_li {
+                render_sourcepos(context, node)?;
+            }
+            if context.options.render.tasklist_classes {
+                context.write_str(" class=\"task-list-item-checkbox\"")?;
+            }
+            let line = nti.symbol_sourcepos.start.line;
+            let column = nti.symbol_sourcepos.start.column;
+            context.write_str(&format!(" data-task-line=\"{line}\" data-task-column=\"{column}\""))?;
+            if nti.symbol.is_some() {
+                context.write_str(" checked=\"\"")?;
+            }
+            let state = if nti.symbol.is_some() { "incomplete" } else { "complete" };
+            context.write_str(&format!(" aria-label=\"Mark task on line {line} {state}\""))?;
+            context.write_str(" /> ")?;
+        } else if write_li {
+            context.write_str("</li>")?;
+            context.lf()?;
+        }
+    },
+});
 
 /// Walks the parsed AST (not the rendered HTML string) to collect headings.
 ///
@@ -208,38 +286,51 @@ fn stamp_image_srcs(html: &mut String, md_path: &Path) {
     }
 }
 
-#[tauri::command]
-pub fn render_markdown(path: PathBuf) -> Result<RenderedDoc, RenderError> {
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if !matches!(ext.as_str(), "md" | "markdown" | "mdown" | "mkd") {
-        return Err(RenderError::NotMarkdown(
-            path.to_string_lossy().into_owned(),
-        ));
+fn file_id(metadata: &std::fs::Metadata) -> String {
+    format!("{}:{}", metadata.dev(), metadata.ino())
+}
+
+fn revision_for(bytes: &[u8], metadata: &std::fs::Metadata) -> FileRevision {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    FileRevision {
+        sha256: format!("{:x}", hasher.finalize()),
+        len: bytes.len() as u64,
+        file_id: file_id(metadata),
     }
-    let source = std::fs::read_to_string(&path)?;
+}
+
+fn read_snapshot(file: &mut std::fs::File) -> Result<FileSnapshot, std::io::Error> {
+    file.seek(SeekFrom::Start(0))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let metadata = file.metadata()?;
+    let revision = revision_for(&bytes, &metadata);
+    Ok(FileSnapshot { bytes, metadata, revision })
+}
+
+fn markdown_source(bytes: Vec<u8>) -> Result<String, RenderError> {
+    String::from_utf8(bytes).map_err(|err| RenderError::Io(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        err,
+    )))
+}
+
+fn render_snapshot(path: &Path, snapshot: &FileSnapshot) -> Result<RenderedDoc, RenderError> {
+    let source = markdown_source(snapshot.bytes.clone())?;
     let opts = build_options();
     let start = std::time::Instant::now();
     let mut plugins = options::Plugins::default();
     plugins.render.codefence_syntax_highlighter = Some(syntect_adapter());
 
-    // Parse once into an AST and reuse it for both heading extraction and
-    // HTML formatting, rather than re-scanning the rendered HTML string for
-    // headings after the fact.
     let arena = Arena::new();
     let root = parse_document(&arena, &source, &opts);
     let headings = extract_headings(root, &opts);
-    let local_images = extract_local_images(root, &path);
+    let local_images = extract_local_images(root, path);
     let mut html = String::new();
-    // Writing into an in-memory String via fmt::Write is infallible in
-    // practice; comrak's own `markdown_to_html_with_plugins` does the same
-    // `.unwrap()` internally.
-    format_html_with_plugins(root, &opts, &mut html, &plugins)
+    InteractiveHtmlFormatter::format_document_with_plugins(root, &opts, &mut html, &plugins)
         .expect("formatting HTML into an in-memory buffer should never fail");
-    stamp_image_srcs(&mut html, &path);
+    stamp_image_srcs(&mut html, path);
 
     tracing::info!(
         target: "peekmd::render",
@@ -248,8 +339,8 @@ pub fn render_markdown(path: PathBuf) -> Result<RenderedDoc, RenderError> {
         took_ms = start.elapsed().as_millis() as u64,
         "rendered"
     );
-    let mtime = std::fs::metadata(&path)
-        .and_then(|m| m.modified())
+    let mtime = snapshot.metadata
+        .modified()
         .map(|t| t.duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0))
         .map_err(|e| RenderError::Stat(e.to_string()))?;
     let title = path
@@ -263,9 +354,188 @@ pub fn render_markdown(path: PathBuf) -> Result<RenderedDoc, RenderError> {
         path: path.to_string_lossy().into_owned(),
         headings,
         mtime,
+        revision: snapshot.revision.clone(),
         local_images,
     })
 }
+
+#[tauri::command]
+pub fn render_markdown(path: PathBuf) -> Result<RenderedDoc, RenderError> {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(ext.as_str(), "md" | "markdown" | "mdown" | "mkd") {
+        return Err(RenderError::NotMarkdown(path.to_string_lossy().into_owned()));
+    }
+    let mut file = std::fs::File::open(&path)?;
+    let snapshot = read_snapshot(&mut file)?;
+    render_snapshot(&path, &snapshot)
+}
+fn line_start(bytes: &[u8], line: usize) -> Option<usize> {
+    if line == 0 { return None; }
+    let mut offset = if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) { 3 } else { 0 };
+    let mut current = 1;
+    if line == current { return Some(offset); }
+    while offset < bytes.len() {
+        match bytes[offset] {
+            b'\n' => {
+                offset += 1;
+                current += 1;
+            }
+            b'\r' => {
+                offset += 1;
+                if bytes.get(offset) == Some(&b'\n') { offset += 1; }
+                current += 1;
+            }
+            _ => offset += 1,
+        }
+        if line == current { return Some(offset); }
+    }
+    None
+}
+
+fn byte_offset_for_position(bytes: &[u8], line: usize, column: usize) -> Option<usize> {
+    if column == 0 { return None; }
+    let mut offset = line_start(bytes, line)?;
+    let mut visual_column = 1;
+    while offset < bytes.len() {
+        if visual_column == column { return Some(offset); }
+        match bytes[offset] {
+            b'\n' | b'\r' => break,
+            b'\t' => visual_column += 4 - ((visual_column - 1) % 4),
+            _ => visual_column += 1,
+        }
+        offset += 1;
+    }
+    (visual_column == column).then_some(offset)
+}
+
+fn task_marker_offset(bytes: &[u8], line: usize, column: usize, checked: bool) -> Result<usize, TaskEditConflict> {
+    let source = String::from_utf8(bytes.to_vec()).map_err(|_| TaskEditConflict::MarkerChanged)?;
+    let opts = build_options();
+    let arena = Arena::new();
+    let root = parse_document(&arena, &source, &opts);
+    let matches: Vec<_> = root.descendants().filter_map(|node| {
+        let NodeValue::TaskItem(nti) = node.data().value else { return None; };
+        let pos = nti.symbol_sourcepos;
+        (pos.start.line == line && pos.start.column == column).then_some(nti)
+    }).collect();
+    if matches.len() != 1 { return Err(TaskEditConflict::MarkerChanged); }
+    let pos = matches[0].symbol_sourcepos;
+    if matches[0].symbol.is_some() == checked {
+        return Err(TaskEditConflict::MarkerChanged);
+    }
+    let start = byte_offset_for_position(bytes, pos.start.line, pos.start.column);
+    let end = byte_offset_for_position(bytes, pos.end.line, pos.end.column);
+    let (Some(start), Some(end)) = (start, end) else {
+        return Err(TaskEditConflict::MarkerChanged);
+    };
+    let Some(&marker) = bytes.get(start) else { return Err(TaskEditConflict::MarkerChanged); };
+    if end != start || !matches!(marker, b' ' | b'x' | b'X') {
+        return Err(TaskEditConflict::MarkerChanged);
+    }
+    Ok(start)
+}
+
+fn reconcile_conflict(path: &Path, reason: TaskEditConflict) -> Result<TaskEditResult, String> {
+    render_markdown(path.to_path_buf())
+        .map(|document| TaskEditResult::Conflict { document, reason })
+        .map_err(|err| format!("checkbox reconciliation failed: {err}"))
+}
+
+fn validate_checkbox_path(path: &Path) -> Result<(), String> {
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
+    if matches!(ext.as_str(), "md" | "markdown" | "mdown" | "mkd") {
+        Ok(())
+    } else {
+        Err("invalid checkbox request: path is not Markdown".into())
+    }
+}
+
+#[tauri::command]
+pub fn set_task_checked(
+    state: tauri::State<'_, TaskEditState>,
+    path: PathBuf,
+    task_line: usize,
+    task_column: usize,
+    expected_revision: FileRevision,
+    checked: bool,
+) -> Result<TaskEditResult, String> {
+    set_task_checked_inner(&state, path, task_line, task_column, expected_revision, checked)
+}
+
+fn set_task_checked_inner(
+    state: &TaskEditState,
+    path: PathBuf,
+    task_line: usize,
+    task_column: usize,
+    expected_revision: FileRevision,
+    checked: bool,
+) -> Result<TaskEditResult, String> {
+    if task_line == 0 || task_column == 0 {
+        return Err("invalid checkbox request: task coordinates must be positive".into());
+    }
+    validate_checkbox_path(&path)?;
+    let _guard = state.0.lock();
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .map_err(|err| format!("checkbox file open failed: {err}"))?;
+    let initial = read_snapshot(&mut file)
+        .map_err(|err| format!("checkbox file read failed: {err}"))?;
+    if initial.revision.file_id != expected_revision.file_id {
+        return reconcile_conflict(&path, TaskEditConflict::FileReplaced);
+    }
+    if initial.revision.sha256 != expected_revision.sha256 || initial.revision.len != expected_revision.len {
+        return reconcile_conflict(&path, TaskEditConflict::RevisionChanged);
+    }
+    let offset = match task_marker_offset(&initial.bytes, task_line, task_column, checked) {
+        Ok(offset) => offset,
+        Err(reason) => return reconcile_conflict(&path, reason),
+    };
+
+    let before_write = read_snapshot(&mut file)
+        .map_err(|err| format!("checkbox file read failed: {err}"))?;
+    if before_write.revision.file_id != initial.revision.file_id {
+        return reconcile_conflict(&path, TaskEditConflict::FileReplaced);
+    }
+    if before_write.revision.sha256 != initial.revision.sha256 || before_write.revision.len != initial.revision.len {
+        return reconcile_conflict(&path, TaskEditConflict::RevisionChanged);
+    }
+    let path_metadata = std::fs::metadata(&path)
+        .map_err(|err| format!("checkbox reconciliation failed: {err}"))?;
+    if file_id(&path_metadata) != initial.revision.file_id {
+        return reconcile_conflict(&path, TaskEditConflict::FileReplaced);
+    }
+
+    let desired = if checked { b'x' } else { b' ' };
+    let written = file.write_at(&[desired], offset as u64)
+        .map_err(|err| format!("checkbox write failed: {err}"))?;
+    if written != 1 {
+        return Err("checkbox write failed: short write".into());
+    }
+    file.sync_data().map_err(|err| format!("checkbox sync failed: {err}"))?;
+
+    let after_write = read_snapshot(&mut file)
+        .map_err(|err| format!("checkbox reconciliation failed: {err}"))?;
+    let mut expected_bytes = initial.bytes.clone();
+    expected_bytes[offset] = desired;
+    if after_write.bytes != expected_bytes {
+        return reconcile_conflict(&path, TaskEditConflict::ConcurrentWrite);
+    }
+    let path_metadata = std::fs::metadata(&path)
+        .map_err(|err| format!("checkbox reconciliation failed: {err}"))?;
+    if file_id(&path_metadata) != initial.revision.file_id {
+        return reconcile_conflict(&path, TaskEditConflict::FileReplaced);
+    }
+    let document = render_snapshot(&path, &after_write)
+        .map_err(|err| format!("checkbox reconciliation failed: {err}"))?;
+    Ok(TaskEditResult::Updated { document })
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -470,4 +740,137 @@ mod tests {
         assert!(doc.html.contains("?v="), "rendered HTML should have mtime-stamped img src: {}", doc.html);
         std::fs::remove_dir_all(&dir).ok();
     }
+    fn task_checkbox_dir(label: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("peekmd-task-{label}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        (dir.clone(), dir.join("doc.md"))
+    }
+
+    fn revision_for_path(path: &Path) -> FileRevision {
+        let mut file = std::fs::File::open(path).unwrap();
+        read_snapshot(&mut file).unwrap().revision
+    }
+
+    #[test]
+    fn task_checkbox_rendered_inputs_are_enabled_and_identity_bearing() {
+        let (dir, path) = task_checkbox_dir("render");
+        std::fs::write(&path, "- [ ] parent\n  - [X] nested\n1. [x] numbered\n").unwrap();
+        let doc = render_markdown(path.clone()).unwrap();
+        assert!(doc.html.contains("class=\"task-list-item-checkbox\""));
+        assert!(!doc.html.contains("disabled=\"\""));
+        assert!(doc.html.contains("data-task-line=\"1\" data-task-column=\"4\""));
+        assert!(doc.html.contains("data-task-line=\"2\" data-task-column=\"6\""));
+        assert!(doc.html.contains("aria-label=\"Mark task on line 1 complete\""));
+        assert!(doc.html.contains("aria-label=\"Mark task on line 2 incomplete\""));
+        assert!(doc.html.contains("data-sourcepos=\"1:1-2:14\""));
+        assert!(doc.html.contains("data-sourcepos=\"2:3-2:14\""));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn task_checkbox_raw_and_lookalike_markers_are_not_generated_tasks() {
+        let (dir, path) = task_checkbox_dir("raw");
+        std::fs::write(&path, "- [!] no\n```\n- [ ] fence\n```\n<input type=\"checkbox\"> raw\n").unwrap();
+        let doc = render_markdown(path.clone()).unwrap();
+        assert_eq!(doc.html.matches("data-task-line=").count(), 0);
+        assert!(doc.html.contains("<input type=\"checkbox\"> raw"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn task_checkbox_updates_exactly_one_byte_and_preserves_uppercase_until_unchecked() {
+        let (dir, path) = task_checkbox_dir("write");
+        std::fs::write(&path, "before\n- [X] keep case\n- [ ] check\nafter\n").unwrap();
+        let state = TaskEditState::default();
+        let revision = revision_for_path(&path);
+        let updated = set_task_checked_inner(&state, path.clone(), 3, 4, revision, true).unwrap();
+        assert!(matches!(updated, TaskEditResult::Updated { .. }));
+        let checked = std::fs::read(&path).unwrap();
+        assert_eq!(&checked, b"before\n- [X] keep case\n- [x] check\nafter\n");
+        let revision = revision_for_path(&path);
+        let updated = set_task_checked_inner(&state, path.clone(), 2, 4, revision, false).unwrap();
+        assert!(matches!(updated, TaskEditResult::Updated { .. }));
+        assert_eq!(std::fs::read(&path).unwrap(), b"before\n- [ ] keep case\n- [x] check\nafter\n");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn task_checkbox_offsets_handle_bom_unicode_tabs_and_line_endings() {
+        let cases = [
+            (b"\xEF\xBB\xBF- [ ] bom\r\n- [x] crlf\r- [ ] cr\n".as_slice(), 1, 4),
+            ("é - [ ] unicode\n\t- [ ] tab\n".as_bytes(), 1, 7),
+            (b"- [ ] no newline".as_slice(), 1, 4),
+        ];
+        for (bytes, line, column) in cases {
+            let offset = byte_offset_for_position(bytes, line, column).unwrap();
+            assert_eq!(bytes[offset], b' ');
+        }
+        let tab = b"\t- [ ] tab";
+        assert_eq!(byte_offset_for_position(tab, 1, 8).map(|n| tab[n]), Some(b' '));
+        let crlf = b"- [ ] one\r\n- [ ] two\r- [ ] three";
+        assert_eq!(byte_offset_for_position(crlf, 2, 4).map(|n| crlf[n]), Some(b' '));
+        assert_eq!(byte_offset_for_position(crlf, 3, 4).map(|n| crlf[n]), Some(b' '));
+    }
+
+    #[test]
+    fn task_checkbox_stale_revision_and_invalid_requests_do_not_write() {
+        let (dir, path) = task_checkbox_dir("conflict");
+        std::fs::write(&path, "- [ ] task\n").unwrap();
+        let state = TaskEditState::default();
+        let revision = revision_for_path(&path);
+        std::fs::write(&path, "- [x] task\n").unwrap();
+        let result = set_task_checked_inner(&state, path.clone(), 1, 4, revision, true).unwrap();
+        assert!(matches!(result, TaskEditResult::Conflict { reason: TaskEditConflict::RevisionChanged, .. }));
+        assert_eq!(std::fs::read(&path).unwrap(), b"- [x] task\n");
+        let result = set_task_checked_inner(&state, path.clone(), 0, 4, revision_for_path(&path), false);
+        assert!(matches!(result, Err(ref err) if err.starts_with("invalid checkbox request:")));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn task_checkbox_nested_duplicate_labels_map_by_coordinates() {
+        let (dir, path) = task_checkbox_dir("duplicate");
+        std::fs::write(&path, "- [ ] same\n  - [ ] same\n- [ ] same\n").unwrap();
+        let doc = render_markdown(path.clone()).unwrap();
+        assert!(doc.html.contains("data-task-line=\"1\" data-task-column=\"4\""));
+        assert!(doc.html.contains("data-task-line=\"2\" data-task-column=\"6\""));
+        assert!(doc.html.contains("data-task-line=\"3\" data-task-column=\"4\""));
+        let state = TaskEditState::default();
+        let updated = set_task_checked_inner(&state, path.clone(), 2, 6, doc.revision, true).unwrap();
+        assert!(matches!(updated, TaskEditResult::Updated { .. }));
+        assert_eq!(std::fs::read(&path).unwrap(), b"- [ ] same\n  - [x] same\n- [ ] same\n");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn task_checkbox_symlink_target_changes_without_replacing_link() {
+        let (dir, path) = task_checkbox_dir("symlink");
+        let target = dir.join("target.md");
+        std::fs::write(&target, "- [ ] target\n").unwrap();
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        let revision = revision_for_path(&path);
+        let state = TaskEditState::default();
+        let result = set_task_checked_inner(&state, path.clone(), 1, 4, revision, true).unwrap();
+        assert!(matches!(result, TaskEditResult::Updated { .. }));
+        assert_eq!(std::fs::read(&target).unwrap(), b"- [x] target\n");
+        assert!(std::fs::symlink_metadata(&path).unwrap().file_type().is_symlink());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn task_checkbox_replaced_path_returns_conflict_without_touching_replacement() {
+        let (dir, path) = task_checkbox_dir("replaced");
+        let replacement = dir.join("replacement.md");
+        std::fs::write(&path, "- [ ] original\n").unwrap();
+        let revision = revision_for_path(&path);
+        std::fs::write(&replacement, "- [ ] replacement\n").unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        let state = TaskEditState::default();
+        let result = set_task_checked_inner(&state, path.clone(), 1, 4, revision, true).unwrap();
+        assert!(matches!(result, TaskEditResult::Conflict { reason: TaskEditConflict::FileReplaced, .. }));
+        assert_eq!(std::fs::read(&path).unwrap(), b"- [ ] replacement\n");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+
 }

@@ -158,7 +158,7 @@ pub fn spawn_detached_window(
     // nothing releases if the window is closed with the native close button
     // instead of through the app's own `close()` action. Emit an event the
     // main window can react to — releasing that watch reference and, if the
-    // doc wasn't open there either, restoring it to Recently Closed.
+    // doc wasn't open there either, restoring it to Recently Viewed.
     let detached_path = path.clone();
     let handle = app.clone();
     window.on_window_event(move |event| {

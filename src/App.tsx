@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -11,10 +11,12 @@ import { CommandPalette } from './components/CommandPalette';
 import { FindBar } from './components/FindBar';
 import { Toast } from './components/Toast';
 import { SkillPrompt, checkSkillPrompt } from './components/SkillPrompt';
+import { StatusBar } from './components/StatusBar';
 import { useStore } from './store';
 import { installGlobalKeybindings } from './lib/keybindings';
 import { initWatcher } from './lib/watcher';
 import { installMdLinkHandler } from './lib/mdLinks';
+import { installTaskCheckboxHandler } from './lib/taskCheckboxes';
 import { scheduleSave, type Persisted } from './lib/persistence';
 import { applyTheme, resolveTheme, watchSystemTheme } from './lib/theme';
 import { resolveMarkdownImages } from './lib/mdImages';
@@ -31,6 +33,7 @@ const isDetached = detachedPath !== null;
 export default function App() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [showSkillPrompt, setShowSkillPrompt] = useState(false);
+  const [hoveredLink, setHoveredLink] = useState<string | null>(null);
 
   const docViewRef = useRef<HTMLDivElement>(null);
   const mainAreaRef = useRef<HTMLDivElement>(null);
@@ -55,6 +58,29 @@ export default function App() {
     if (paths.length > 0) await useStore.getState().openMany(paths);
   }, []);
 
+  const handleLinkMouseOver = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const link = target?.closest<HTMLAnchorElement>('a[href]');
+    if (!link || !event.currentTarget.contains(link)) return;
+    const href = link.getAttribute('href');
+    if (href) setHoveredLink(href);
+  }, []);
+
+  const handleLinkMouseOut = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const link = target?.closest<HTMLAnchorElement>('a[href]');
+    if (!link) return;
+
+    const related = event.relatedTarget;
+    if (related instanceof Node && link.contains(related)) return;
+    if (related instanceof Element && related.closest('a[href]') === link) return;
+    setHoveredLink(null);
+  }, []);
+
+  useEffect(() => {
+    setHoveredLink(null);
+  }, [activeDoc?.path, activeDoc?.html]);
+
   // One-time setup: hydrate store, install keybindings, start watcher, md-link handler, persistence
   useEffect(() => {
     if (isDetached) {
@@ -76,6 +102,7 @@ export default function App() {
     const cleanupKeys = installGlobalKeybindings();
     const cleanupWatcher = initWatcher(() => docViewRef.current);
     const cleanupLinks = installMdLinkHandler();
+    const cleanupTaskCheckboxes = installTaskCheckboxHandler(() => docViewRef.current);
 
     // Theme sync: ui.themeOverride (persisted) is the single source of truth.
     // Re-apply whenever it changes (user toggle, or hydrateFromDisk restoring
@@ -96,9 +123,10 @@ export default function App() {
         return {
           version: 2 as const,
           openDocs: s.openDocs.map(d => d.path),
+          openedAt: Object.fromEntries(s.openDocs.map(d => [d.path, d.openedAt])),
           activeDoc: s.activeDocId,
           rightPaneDoc: null as null,
-          recentlyClosed: s.recentlyClosed,
+          recentlyViewed: s.recentlyViewed,
           scrollPositions: Object.fromEntries(scrollPositions.current),
           ui: {
             sidebarVisible: s.ui.sidebarVisible,
@@ -110,11 +138,13 @@ export default function App() {
       buildSnapshotRef.current = buildSnapshot;
       unsubPersist = useStore.subscribe(() => scheduleSave(buildSnapshot));
     }
+    const pruneTimer = window.setInterval(() => useStore.getState().pruneOpenDocuments(), 60 * 60 * 1000);
 
     return () => {
-      cleanupKeys(); cleanupWatcher(); cleanupLinks();
+      cleanupKeys(); cleanupWatcher(); cleanupLinks(); cleanupTaskCheckboxes();
       unsubTheme(); unsubSystemTheme();
       unsubPersist?.();
+      window.clearInterval(pruneTimer);
     };
   }, []);
 
@@ -162,10 +192,9 @@ export default function App() {
     return () => { void promise.then((un) => un()); };
   }, []);
 
-  // A detached (doc-<uuid>) window closed — release its file-watcher
   // reference and, if the doc isn't open here either, restore it to
-  // Recently Closed. Main window only: detached windows don't own
-  // persistence or Recently Closed.
+  // Recently Viewed. Main window only: detached windows don't own
+  // persistence or Recently Viewed.
   useEffect(() => {
     if (isDetached) return;
     const promise = listen<{ path: string }>('detached-window-closed', (e) => {
@@ -205,13 +234,21 @@ export default function App() {
       <TopBar />
       <div className="peekmd-main-area" ref={mainAreaRef}>
         {sidebarVisible && openDocs.length > 0 && <Sidebar onResizeHandleMouseDown={onResizeHandleMouseDown} />}
-        <div className="peekmd-doc-area" ref={docViewRef}>
-          <FindBar />
-          {activeDoc
-            ? <article className="markdown-body" dangerouslySetInnerHTML={{ __html: activeDoc.html }} />
-            : <EmptyState onPickFile={pickFile} isDragOver={isDragOver} />
-          }
-          {isDragOver && <div className="peekmd-drop-overlay" aria-hidden />}
+        <div className="peekmd-doc-area">
+          <div
+            className="peekmd-doc-scroll"
+            ref={docViewRef}
+            onMouseOver={handleLinkMouseOver}
+            onMouseOut={handleLinkMouseOut}
+          >
+            <FindBar />
+            {activeDoc
+              ? <article className="markdown-body" dangerouslySetInnerHTML={{ __html: activeDoc.html }} />
+              : <EmptyState onPickFile={pickFile} isDragOver={isDragOver} />
+            }
+            {isDragOver && <div className="peekmd-drop-overlay" aria-hidden />}
+          </div>
+          <StatusBar href={hoveredLink} />
         </div>
         <TOC />
       </div>

@@ -11,9 +11,9 @@ export function CommandPalette() {
   const setPalette = useStore(s => s.setPalette);
   const openDocs = useStore(s => s.openDocs);
   const activeDocId = useStore(s => s.activeDocId);
-  const recentlyClosed = useStore(s => s.recentlyClosed);
+  const recentlyViewed = useStore(s => s.recentlyViewed);
   const activate = useStore(s => s.activate);
-  const reopenRecent = useStore(s => s.reopenRecent);
+  const reopenViewed = useStore(s => s.reopenViewed);
   const setSidebar = useStore(s => s.setSidebar);
   const setToc = useStore(s => s.setToc);
   const refreshActive = useStore(s => s.refreshActive);
@@ -50,7 +50,7 @@ export function CommandPalette() {
 
   const items: Item[] = [
     ...openDocs.map(d => ({ id: 'doc:' + d.path, label: d.title, secondary: d.path, kind: 'doc' as const, run: () => { activate(d.path); setPalette(false); } })),
-    ...recentlyClosed.map(r => ({ id: 'rec:' + r.path, label: 'Reopen: ' + (r.title || stemName(r.path)), secondary: r.path, kind: 'recent' as const, run: () => { void reopenRecent(r.path); setPalette(false); } })),
+    ...recentlyViewed.map(r => ({ id: 'viewed:' + r.path, label: 'View: ' + (r.title || stemName(r.path)), secondary: r.path, kind: 'recent' as const, run: () => { void reopenViewed(r.path); setPalette(false); } })),
     ...(activeDoc?.headings.filter(h => h.level <= 3) ?? []).map(h => ({ id: 'h:' + h.id, label: 'Jump to: ' + h.text, secondary: `H${h.level}`, kind: 'heading' as const, run: () => { location.hash = '#' + h.id; setPalette(false); } })),
     { id: 'cmd:sidebar', label: 'Toggle sidebar', kind: 'cmd', run: () => { setSidebar(!sidebarVisible); setPalette(false); } },
     { id: 'cmd:toc', label: 'Toggle TOC', kind: 'cmd', run: () => { setToc(!tocVisible); setPalette(false); } },

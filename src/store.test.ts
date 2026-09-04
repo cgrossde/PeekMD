@@ -1,17 +1,24 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { Persisted } from './lib/persistence';
 
-const rendered = new Map<string, { html: string; title: string; headings: never[] }>();
-function seed(path: string, html = `<p>${path}</p>`) {
-  rendered.set(path, { html, title: path.split('/').pop()!.replace(/\.md$/, ''), headings: [] });
+const defaultRevision = { sha256: 'seed', len: 0, file_id: 'seed:1' };
+const rendered = new Map<string, { html: string; title: string; headings: never[]; revision: typeof defaultRevision }>();
+function seed(path: string, html = `<p>${path}</p>`, revision = defaultRevision) {
+  rendered.set(path, { html, title: path.split('/').pop()!.replace(/\.md$/, ''), headings: [], revision });
 }
+let taskResponse: unknown = null;
+let taskFailure: Error | null = null;
 
 const invoke = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
   if (cmd === 'render_markdown') {
     const path = args!.path as string;
     const doc = rendered.get(path);
     if (!doc) throw new Error(`ENOENT: ${path}`);
-    return { html: doc.html, title: doc.title, path, headings: doc.headings, mtime: 0, local_images: [] };
+    return { html: doc.html, title: doc.title, path, headings: doc.headings, mtime: 0, revision: doc.revision, local_images: [] };
+  }
+  if (cmd === 'set_task_checked') {
+    if (taskFailure) throw taskFailure;
+    return taskResponse;
   }
   if (cmd === 'watch_paths' || cmd === 'unwatch' || cmd === 'watch_images' || cmd === 'unwatch_images') return undefined;
   throw new Error(`unexpected invoke: ${cmd}`);
@@ -32,7 +39,47 @@ beforeEach(() => {
   rendered.clear();
   seed('/docs/a.md');
   seed('/docs/b.md');
+  taskResponse = null;
+  taskFailure = null;
   seed('/docs/c.md');
+});
+
+describe('document opening order', () => {
+  it('adds newly opened documents to the front of the open document list', async () => {
+    await useStore.getState().openFile('/docs/a.md');
+    await useStore.getState().openFile('/docs/b.md');
+    await useStore.getState().openFile('/docs/c.md');
+
+    expect(useStore.getState().openDocs.map(d => d.path)).toEqual(['/docs/c.md', '/docs/b.md', '/docs/a.md']);
+  });
+  it('moves the oldest eligible documents to recently viewed at the open limit', async () => {
+    const openedAt = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString();
+    for (let i = 0; i < 11; i++) {
+      const path = `/docs/old-${i}.md`;
+      seed(path);
+      await useStore.getState().openFile(path, { openedAt, activate: false, prune: false });
+    }
+
+    useStore.getState().pruneOpenDocuments();
+
+    expect(useStore.getState().openDocs).toHaveLength(10);
+    expect(useStore.getState().openDocs[0].path).toBe('/docs/old-10.md');
+    expect(useStore.getState().recentlyViewed[0].path).toBe('/docs/old-0.md');
+  });
+
+  it('keeps more than ten documents when the excess documents are too new', async () => {
+    for (let i = 0; i < 11; i++) {
+      const path = `/docs/new-${i}.md`;
+      seed(path);
+      await useStore.getState().openFile(path, { activate: false, prune: false });
+    }
+
+    useStore.getState().pruneOpenDocuments();
+
+    expect(useStore.getState().openDocs).toHaveLength(11);
+    expect(useStore.getState().recentlyViewed).toHaveLength(0);
+  });
+
 });
 
 describe('navigation history', () => {
@@ -71,9 +118,10 @@ describe('navigation history', () => {
     loadState.mockResolvedValue({
       version: 2,
       openDocs: ['/docs/a.md', '/docs/b.md', '/docs/c.md'],
+      openedAt: {},
       activeDoc: '/docs/c.md',
       rightPaneDoc: null,
-      recentlyClosed: [],
+      recentlyViewed: [],
       scrollPositions: {},
       ui: { sidebarVisible: true, tocVisible: true, themeOverride: null },
     });
@@ -90,9 +138,10 @@ describe('navigation history', () => {
     loadState.mockResolvedValue({
       version: 2,
       openDocs: ['/docs/a.md', '/docs/missing.md', '/docs/b.md'],
+      openedAt: {},
       activeDoc: '/docs/b.md',
       rightPaneDoc: null,
-      recentlyClosed: [],
+      recentlyViewed: [],
       scrollPositions: {},
       ui: { sidebarVisible: true, tocVisible: true, themeOverride: null },
     });
@@ -111,9 +160,10 @@ describe('navigation history', () => {
     loadState.mockResolvedValue({
       version: 2,
       openDocs: ['/docs/a.md', '/docs/b.md'],
+      openedAt: {},
       activeDoc: '/docs/b.md',
       rightPaneDoc: null,
-      recentlyClosed: [],
+      recentlyViewed: [],
       scrollPositions: {},
       ui: { sidebarVisible: true, tocVisible: true, themeOverride: null },
     });
@@ -137,8 +187,8 @@ describe('close / closeOthers', () => {
 
     useStore.getState().close('/docs/b.md');
 
-    expect(useStore.getState().openDocs.map(d => d.path)).toEqual(['/docs/a.md', '/docs/c.md']);
-    expect(useStore.getState().activeDocId).toBe('/docs/c.md');
+    expect(useStore.getState().openDocs.map(d => d.path)).toEqual(['/docs/c.md', '/docs/a.md']);
+    expect(useStore.getState().activeDocId).toBe('/docs/a.md');
   });
 
   it('falls back to the previous doc when closing the last (active) doc', async () => {
@@ -150,24 +200,24 @@ describe('close / closeOthers', () => {
     expect(useStore.getState().activeDocId).toBe('/docs/a.md');
   });
 
-  it('prepends the closed doc to recentlyClosed and prunes it from history', async () => {
+  it('prepends the viewed doc to recentlyViewed and prunes it from history', async () => {
     await useStore.getState().openFile('/docs/a.md');
     await useStore.getState().openFile('/docs/b.md');
 
     useStore.getState().close('/docs/a.md');
 
-    const recent = useStore.getState().recentlyClosed;
+    const recent = useStore.getState().recentlyViewed;
     expect(recent[0].path).toBe('/docs/a.md');
     expect(useStore.getState().navBack).not.toContain('/docs/a.md');
   });
 
-  it('caps recentlyClosed at 20 entries, newest first', async () => {
+  it('caps recentlyViewed at 20 entries, newest first', async () => {
     for (let i = 0; i < 25; i++) {
       seed(`/docs/gen-${i}.md`);
       await useStore.getState().openFile(`/docs/gen-${i}.md`);
       useStore.getState().close(`/docs/gen-${i}.md`);
     }
-    const recent = useStore.getState().recentlyClosed;
+    const recent = useStore.getState().recentlyViewed;
     expect(recent).toHaveLength(20);
     expect(recent[0].path).toBe('/docs/gen-24.md');
   });
@@ -225,6 +275,7 @@ describe('activate', () => {
     useStore.getState().activate('/docs/a.md');
 
     await vi.waitFor(() => {
+
       expect(useStore.getState().openDocs.find(d => d.path === '/docs/a.md')?.html).toBe('<p>updated on disk</p>');
     });
     const doc = useStore.getState().openDocs.find(d => d.path === '/docs/a.md')!;
@@ -241,6 +292,53 @@ describe('activate', () => {
     await Promise.resolve();
 
     expect(invoke).not.toHaveBeenCalledWith('render_markdown', expect.anything());
+  });
+});
+describe('task checkbox updates', () => {
+  it('sends exact coordinates and merges an updated document', async () => {
+    await useStore.getState().openFile('/docs/a.md');
+    const revision = useStore.getState().openDocs[0].revision;
+    const updatedRevision = { sha256: 'updated', len: 8, file_id: 'seed:1' };
+    taskResponse = {
+      status: 'updated',
+      document: { html: '<p>checked</p>', title: 'a', path: '/docs/a.md', headings: [], mtime: 2, revision: updatedRevision, local_images: [] },
+    };
+
+    await expect(useStore.getState().setTaskChecked('/docs/a.md', 3, 4, revision, true)).resolves.toBe(true);
+    expect(invoke).toHaveBeenCalledWith('set_task_checked', {
+      path: '/docs/a.md', taskLine: 3, taskColumn: 4, expectedRevision: revision, checked: true,
+    });
+    expect(useStore.getState().openDocs[0]).toMatchObject({ html: '<p>checked</p>', revision: updatedRevision, dirty: false, removed: false });
+  });
+
+  it('reloads conflicts and does not commit an older completion over a newer render', async () => {
+    await useStore.getState().openFile('/docs/a.md');
+    const requestRevision = useStore.getState().openDocs[0].revision;
+    const newerRevision = { sha256: 'newer', len: 9, file_id: 'seed:1' };
+    useStore.setState(s => ({ openDocs: s.openDocs.map(d => ({ ...d, html: '<p>newer</p>', revision: newerRevision })) }));
+    taskResponse = {
+      status: 'conflict',
+      reason: 'revision_changed',
+      document: { html: '<p>stale conflict</p>', title: 'a', path: '/docs/a.md', headings: [], mtime: 1, revision: requestRevision, local_images: [] },
+    };
+
+    await expect(useStore.getState().setTaskChecked('/docs/a.md', 1, 4, requestRevision, true)).resolves.toBe(false);
+    expect(useStore.getState().openDocs[0].html).toBe('<p>newer</p>');
+    expect(useStore.getState().lastError).toBe('The file changed during the checkbox update. Reloaded the latest content without retrying.');
+  });
+
+  it('reconciles one failed write without retrying it', async () => {
+    await useStore.getState().openFile('/docs/a.md');
+    const revision = useStore.getState().openDocs[0].revision;
+    const reconciledRevision = { sha256: 'reconciled', len: 12, file_id: 'seed:1' };
+    seed('/docs/a.md', '<p>reconciled</p>', reconciledRevision);
+    taskFailure = new Error('write failed');
+
+    await expect(useStore.getState().setTaskChecked('/docs/a.md', 1, 4, revision, true)).resolves.toBe(false);
+    expect(invoke.mock.calls.filter(([cmd]) => cmd === 'set_task_checked')).toHaveLength(1);
+    expect(invoke).toHaveBeenCalledWith('render_markdown', { path: '/docs/a.md' });
+    expect(useStore.getState().openDocs[0].html).toBe('<p>reconciled</p>');
+    expect(useStore.getState().lastError).toBe('Checkbox update could not be confirmed: write failed');
   });
 });
 

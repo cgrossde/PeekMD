@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Doc } from '../store';
-
+import { timeAgo } from '../lib/timeAgo';
 type Props = {
   doc: Doc;
   active: boolean;
@@ -50,12 +50,16 @@ export function SidebarRow({ doc, active, folder, onActivate, onClose, onContext
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <span className="peekmd-sidebar-row-title">
-        {doc.title}
-        {folder && <span className="peekmd-sidebar-qualifier"> {`{${folder}}`}</span>}
-        {doc.dirty && <span className="peekmd-dirty-dot" aria-label="modified"> •</span>}
-        {doc.removed && <span className="peekmd-removed-badge" aria-label="deleted"> ✕</span>}
-      </span>
+      <div className="peekmd-sidebar-row-content">
+        <span className="peekmd-sidebar-row-title">{doc.title}
+          {doc.dirty && <span className="peekmd-dirty-dot" aria-label="modified"> •</span>}
+          {doc.removed && <span className="peekmd-removed-badge" aria-label="deleted"> ✕</span>}
+        </span>
+        <div className="peekmd-sidebar-row-meta">
+          {folder && <span className="peekmd-sidebar-folder">{folder}</span>}
+          <span className="peekmd-sidebar-opened-time">{timeAgo(doc.openedAt)}</span>
+        </div>
+      </div>
       <button
         className="peekmd-sidebar-close"
         type="button"

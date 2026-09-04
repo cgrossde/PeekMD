@@ -1,7 +1,7 @@
 /// peekmd-cli — headless helper for the PeekMD Tauri app.
 ///
 /// Subcommands:
-///   list                 Print open docs, active doc, and recently-closed docs as JSON.
+///   list                 Print open docs, opened times, and recently-viewed docs as JSON.
 ///   open <path...>       Open one or more Markdown files in PeekMD (no focus steal).
 ///
 /// Exit codes: 0 = ok, 1 = error.
@@ -50,7 +50,7 @@ fn cmd_list() {
 
     if !path.exists() {
         // App has never run — return empty state so callers don't have to special-case.
-        println!("{{\"openDocs\":[],\"activeDoc\":null,\"recentlyClosed\":[]}}");
+        println!("{{\"openDocs\":[],\"openedAt\":{{}},\"activeDoc\":null,\"recentlyViewed\":[]}}");
         return;
     }
 
@@ -71,10 +71,16 @@ fn cmd_list() {
     };
 
     // Emit only the fields an agent cares about.
+    let recently_viewed = v
+        .get("recentlyViewed")
+        .or_else(|| v.get("recentlyClosed"))
+        .cloned()
+        .unwrap_or(serde_json::Value::Array(vec![]));
     let out = serde_json::json!({
-        "openDocs":      v.get("openDocs").cloned().unwrap_or(serde_json::Value::Array(vec![])),
-        "activeDoc":     v.get("activeDoc").cloned().unwrap_or(serde_json::Value::Null),
-        "recentlyClosed": v.get("recentlyClosed").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+        "openDocs": v.get("openDocs").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+        "openedAt": v.get("openedAt").cloned().unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+        "activeDoc": v.get("activeDoc").cloned().unwrap_or(serde_json::Value::Null),
+        "recentlyViewed": recently_viewed,
     });
 
     println!("{}", serde_json::to_string_pretty(&out).unwrap());

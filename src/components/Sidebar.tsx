@@ -10,11 +10,11 @@ import { FileText, Clock } from 'lucide-react';
 export function Sidebar({ onResizeHandleMouseDown }: { onResizeHandleMouseDown: (e: React.MouseEvent) => void }) {
   const openDocs = useStore(s => s.openDocs);
   const activeDocId = useStore(s => s.activeDocId);
-  const recentlyClosed = useStore(s => s.recentlyClosed);
+  const recentlyViewed = useStore(s => s.recentlyViewed);
   const activate = useStore(s => s.activate);
   const close = useStore(s => s.close);
-  const reopenRecent = useStore(s => s.reopenRecent);
-  const removeRecent = useStore(s => s.removeRecent);
+  const reopenViewed = useStore(s => s.reopenViewed);
+  const removeViewed = useStore(s => s.removeViewed);
   const closeOthers = useStore(s => s.closeOthers);
 
   // Listen for context menu selections
@@ -72,35 +72,37 @@ export function Sidebar({ onResizeHandleMouseDown }: { onResizeHandleMouseDown: 
         </ul>
       </section>
 
-      {recentlyClosed.length > 0 && (
+      {recentlyViewed.length > 0 && (
         <section className="peekmd-sidebar-section">
           <div className="peekmd-sidebar-header">
             <Clock size={12} strokeWidth={2} style={{ marginRight: 4 }} />
-            Recently Closed
+            Recently Viewed
           </div>
           <ul className="peekmd-sidebar-list">
-            {recentlyClosed.map(r => {
-              const folder = parentFolder(r.path);
+            {recentlyViewed.map(entry => {
+              const folder = parentFolder(entry.path);
               return (
-                <li key={r.path} className="peekmd-sidebar-recent-row">
+                <li key={entry.path} className="peekmd-sidebar-recent-row">
                   <button
                     type="button"
                     className="peekmd-sidebar-recent-btn"
-                    onClick={() => void reopenRecent(r.path)}
-                    title={r.path}
+                    onClick={() => void reopenViewed(entry.path)}
+                    title={entry.path}
                   >
                     <FileText size={12} strokeWidth={1.5} style={{ flexShrink: 0 }} />
-                    <span className="peekmd-sidebar-recent-title">
-                      {r.title || stemName(r.path)}
-                      {folder && <span className="peekmd-sidebar-qualifier"> {`{${folder}}`}</span>}
+                    <span className="peekmd-sidebar-recent-content">
+                      <span className="peekmd-sidebar-recent-title">{entry.title || stemName(entry.path)}</span>
+                      <span className="peekmd-sidebar-recent-meta">
+                        {folder && <span className="peekmd-sidebar-folder">{folder}</span>}
+                        <span className="peekmd-sidebar-recent-time">{timeAgo(entry.viewedAt)}</span>
+                      </span>
                     </span>
-                    <span className="peekmd-sidebar-recent-time">{timeAgo(r.closedAt)}</span>
                   </button>
                   <button
                     className="peekmd-sidebar-recent-remove"
                     type="button"
-                    aria-label={`Remove ${r.title || stemName(r.path)} from recently closed`}
-                    onClick={() => removeRecent(r.path)}
+                    aria-label={`Remove ${entry.title || stemName(entry.path)} from recently viewed`}
+                    onClick={() => removeViewed(entry.path)}
                   >×</button>
                 </li>
               );

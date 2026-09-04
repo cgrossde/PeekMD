@@ -82,7 +82,7 @@ export function TOC() {
               onClick={(e) => {
                 e.preventDefault();
                 const target = document.getElementById(h.id);
-                const scroller = document.querySelector<HTMLElement>('.peekmd-doc-area');
+                const scroller = document.querySelector<HTMLElement>('.peekmd-doc-scroll');
                 if (target && scroller) {
                   const top = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - 16;
                   scroller.scrollTo({ top, behavior: 'smooth' });

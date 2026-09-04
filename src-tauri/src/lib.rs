@@ -59,9 +59,11 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(pending)
         .manage(watcher::WatcherState::new())
+        .manage(render::TaskEditState::default())
         .manage(commands::ContextMenuTarget::default())
         .invoke_handler(tauri::generate_handler![
             render::render_markdown,
+            render::set_task_checked,
             take_pending_paths,
             commands::watch_paths,
             commands::unwatch,
