@@ -13,13 +13,15 @@ The Mermaid library is loaded lazily — it is only imported when at least one M
 `hydrateMermaid(container, theme)` is defined in `src/lib/mermaid.ts` and called from `App.tsx`.
 
 ```ts
-// Hydrate Mermaid diagrams whenever the active doc or theme changes.
-useLayoutEffect(() => {
+// Hydrate Mermaid after WebKit has laid out the refreshed document.
+useEffect(() => {
   const c = docViewRef.current;
   if (!c || !activeDoc) return;
-  const theme = resolveTheme(themeOverride);
-  void hydrateMermaid(c, theme);
-}, [activeDoc?.path, activeDoc?.html, themeOverride]);
+  const timer = window.setTimeout(() => {
+    void hydrateMermaid(c, resolveTheme(themeOverride));
+  }, 250);
+  return () => window.clearTimeout(timer);
+}, [activeDoc, themeOverride]);
 ```
 
 The effect fires:
@@ -40,18 +42,36 @@ Hydration runs in a normal `useEffect` and is deferred by 250 ms after the docum
 let mermaidPromise: Promise<MermaidInstance> | null = null;
 
 async function loadMermaid(): Promise<MermaidInstance> {
+  const alreadyLoaded = window.mermaid;
+  if (alreadyLoaded) return alreadyLoaded;
   if (!mermaidPromise) {
     mermaidPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.src = mermaidScriptUrl;
-      script.onload = () => resolve(window.mermaid);
+      const timeout = window.setTimeout(
+        () => reject(new Error('Mermaid loaded without exposing its API')),
+        10_000,
+      );
+      const checkLoaded = () => {
+        if (window.mermaid) {
+          window.clearTimeout(timeout);
+          resolve(window.mermaid);
+        } else {
+          window.setTimeout(checkLoaded, 50);
+        }
+      };
+      script.onload = checkLoaded;
       script.onerror = () => reject(new Error('Failed to load Mermaid'));
       document.head.append(script);
+    }).catch((err) => {
+      mermaidPromise = null;
+      throw err;
     });
   }
   return mermaidPromise;
 }
 ```
+The example is pseudocode; the implementation also clears its polling timer on success or failure and resets the cached promise after a failed load so a later hydration can retry.
 
 `loadMermaid` is called only after at least one fence is found. The load promise is cached in the module-level `mermaidPromise` variable, so the vendored script is appended at most once per application session regardless of how many documents are opened or how many times the theme changes.
 
@@ -75,6 +95,10 @@ On error:
 - The original `<pre>` is replaced with the error div.
 
 Fences are processed sequentially (one `await` per fence) to keep render IDs stable and to avoid concurrent mutations on the same container.
+
+## Controls
+
+Each rendered diagram has a compact control strip with **Zoom out**, **Zoom in**, **Reset zoom**, **Open diagram**, and **Export SVG** buttons. Drag inside the diagram to pan after zooming. Open displays the SVG in a separate window; Export downloads `peekmd-mermaid.svg`. The controls are keyboard-focusable and expose accessible labels; Mermaid links and click actions remain disabled by the strict security mode.
 
 ---
 
@@ -112,15 +136,4 @@ This is a trimmed Mermaid build bundled with the application. It intentionally o
 - Architecture diagrams
 - KaTeX math rendering
 
-The bundle is never fetched from a CDN; `check-offline` build verification enforces this. The TypeScript type shim lives alongside it at `src/vendor/mermaid.d.ts`:
-
-```ts
-declare module '*mermaid.tiny.min.js' {
-  interface Mermaid {
-    initialize(config: MermaidConfig): void;
-    render(id: string, text: string): Promise<RenderResult>;
-  }
-  const mermaid: Mermaid;
-  export default mermaid;
-}
-```
+The bundle is never fetched from a CDN; `check-offline` build verification enforces this. It is loaded as a classic script because this vendored build exposes its API through `globalThis.mermaid`.

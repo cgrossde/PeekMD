@@ -75,6 +75,25 @@ pub fn copy_html(app: AppHandle, html: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn write_svg(path: PathBuf, svg: String) -> Result<(), String> {
+    std::fs::write(path, svg).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn open_svg(app: AppHandle, svg: String) -> Result<(), String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tauri_plugin_opener::OpenerExt;
+
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("peekmd-mermaid-{stamp}.svg"));
+    std::fs::write(&path, svg).map_err(|e| e.to_string())?;
+    app.opener().open_path(path.to_string_lossy().into_owned(), None::<&str>).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn resolve_md_link(base: PathBuf, href: String) -> Option<PathBuf> {
     // Strip file:// prefix
     let href = href.strip_prefix("file://").unwrap_or(&href);

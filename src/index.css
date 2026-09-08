@@ -1224,9 +1224,60 @@ body {
 
 /* ── Mermaid diagrams ── */
 .peekmd-mermaid {
+  position: relative;
   display: block;
-  overflow-x: auto;
+  overflow: hidden;
   margin: 16px 0;
+  border: 1px solid var(--color-border-default, #d0d7de);
+  border-radius: 6px;
+}
+.peekmd-mermaid-viewport {
+  overflow: hidden;
+  min-height: 80px;
+  cursor: grab;
+  touch-action: none;
+}
+.peekmd-mermaid-viewport.is-dragging {
+  cursor: grabbing;
+}
+.peekmd-mermaid-viewport svg {
+  display: block;
+  max-width: none;
+}
+.peekmd-mermaid-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--color-border-default, #d0d7de);
+  border-radius: 6px;
+  background: var(--color-canvas-default, #fff);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+.peekmd-mermaid-control {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  color: var(--color-fg-default, #1f2328);
+  background: transparent;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.peekmd-mermaid-control:hover {
+  background: var(--color-neutral-muted, #afb8c133);
+}
+.peekmd-mermaid-control:focus-visible {
+  outline: 2px solid var(--color-accent-fg, #0969da);
+  outline-offset: 1px;
+}
+[data-theme="dark"] .peekmd-mermaid-controls {
+  background: var(--color-canvas-default, #151b23);
 }
 .peekmd-mermaid-error {
   color: #cf222e;
