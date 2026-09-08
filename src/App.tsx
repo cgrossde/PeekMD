@@ -172,13 +172,17 @@ export default function App() {
     resolveMarkdownImages(c, activeDoc.path);
   }, [activeDoc?.path, activeDoc?.html]);
 
-  // Hydrate Mermaid diagrams whenever the active doc or theme changes.
-  useLayoutEffect(() => {
+  // Mermaid measures SVG text during layout; defer until after the browser has
+  // painted the HTML so WebKit has a real layout tree to measure.
+  useEffect(() => {
     const c = docViewRef.current;
     if (!c || !activeDoc) return;
     const theme = resolveTheme(themeOverride);
-    void hydrateMermaid(c, theme);
-  }, [activeDoc?.path, activeDoc?.html, themeOverride]);
+    const timer = window.setTimeout(() => {
+      void hydrateMermaid(c, theme);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [activeDoc, themeOverride]);
 
   // Initial path — CLI arg / Open With / Finder double-click (main window only)
   useEffect(() => {

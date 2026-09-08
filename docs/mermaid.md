@@ -28,7 +28,7 @@ The effect fires:
 - After every live-reload re-render of the active document (`activeDoc.html` changes).
 - When the theme override changes (`themeOverride` changes), so diagrams are re-rendered to match the current theme.
 
-`useLayoutEffect` runs after React commits DOM mutations but before the browser paints, so the SVG replacement happens in the same frame as the HTML update.
+Hydration runs in a normal `useEffect` and is deferred by 250 ms after the document/theme update. Mermaid measures SVG text during layout; this delay lets macOS WKWebView settle the document and fonts before the flowchart renderer runs.
 
 `hydrateMermaid` receives the `docViewRef` container element and the resolved theme string (`'light'` or `'dark'`). It queries that container for `pre > code.language-mermaid` elements — the shape produced by comrak for fenced code blocks with the `mermaid` language tag.
 
@@ -41,18 +41,21 @@ let mermaidPromise: Promise<MermaidInstance> | null = null;
 
 async function loadMermaid(): Promise<MermaidInstance> {
   if (!mermaidPromise) {
-    mermaidPromise = import('../vendor/mermaid.tiny.min.js').then((m) => {
-      const mod = m as unknown as { default?: MermaidInstance } & MermaidInstance;
-      return mod.default ?? mod;
+    mermaidPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = mermaidScriptUrl;
+      script.onload = () => resolve(window.mermaid);
+      script.onerror = () => reject(new Error('Failed to load Mermaid'));
+      document.head.append(script);
     });
   }
   return mermaidPromise;
 }
 ```
 
-`loadMermaid` is called only after at least one fence is found. The result is cached in the module-level `mermaidPromise` variable, so the dynamic import runs at most once per application session regardless of how many documents are opened or how many times the theme changes.
+`loadMermaid` is called only after at least one fence is found. The load promise is cached in the module-level `mermaidPromise` variable, so the vendored script is appended at most once per application session regardless of how many documents are opened or how many times the theme changes.
 
-The module is resolved from `src/vendor/mermaid.tiny.min.js` — a local file, never a CDN URL.
+The bundle is loaded from `src/vendor/mermaid.tiny.min.js` as a classic script. This is intentional: the downloaded Mermaid tiny bundle exposes its API through `globalThis.mermaid` rather than using ES module exports. It is a local asset, never a CDN URL.
 
 ---
 
@@ -84,6 +87,7 @@ mermaid.initialize({
   startOnLoad: false,
   theme: theme === 'dark' ? 'dark' : 'default',
   securityLevel: 'strict',
+  flowchart: { htmlLabels: false },
 });
 ```
 
@@ -92,7 +96,7 @@ mermaid.initialize({
 | `'dark'` | `'dark'` |
 | `'light'` | `'default'` |
 
-`startOnLoad: false` prevents Mermaid from scanning the entire document on its own. `securityLevel: 'strict'` sandboxes the rendered SVG.
+`startOnLoad: false` prevents Mermaid from scanning the entire document on its own. `securityLevel: 'strict'` encodes HTML labels, and `flowchart.htmlLabels: false` avoids SVG `foreignObject` layout, which can hang in macOS WKWebView.
 
 Because `hydrateMermaid` is re-run on `themeOverride` changes (see [Hydration trigger](#hydration-trigger)), switching between light and dark mode re-renders all diagrams with the correct theme.
 
