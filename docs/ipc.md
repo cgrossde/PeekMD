@@ -11,6 +11,8 @@ Frontend invocations use `invoke` from `@tauri-apps/api/core`.
 | Command | Parameters | Return type | Description |
 | --- | --- | --- | --- |
 | `render_markdown` | `path: PathBuf` | `Result<RenderedDoc, RenderError>` | Open one file snapshot, run comrak, extract headings and local images, and return its mtime and exact revision. Rejects non-Markdown extensions. |
+| `read_markdown_source` | `path: PathBuf` | `Result<EditableDocument, RenderError>` | Read one UTF-8 snapshot, detect its first line separator, render that same source, and return the editable source plus preview document. |
+| `save_markdown_source` | `path: PathBuf, source: String, expectedRevision: FileRevision` | `Result<MarkdownSaveResult, String>` | Recheck the canonical target, render before mutation, write through the existing inode, sync the file, and return the rendered revision. Conflicts return the latest editable snapshot without writing. |
 | `set_task_checked` | `path: PathBuf, taskLine: usize, taskColumn: usize, expectedRevision: FileRevision, checked: bool` | `Result<TaskEditResult, String>` | Validate one parser-owned task marker, then change exactly its one ASCII marker byte. Returns `updated` or a revision/marker/file conflict; never rewrites the whole file. |
 | `take_pending_paths` | — | `Vec<PathBuf>` | Drain the `PendingPaths` state (CLI args / macOS Open With) collected before the webview loaded. Called once on mount as a fallback to the `peekmd://open-files` event. |
 | `watch_paths` | `paths: Vec<PathBuf>` | `Result<(), String>` | Register paths with `WatcherState`. Watches each path's parent directory with `NonRecursive` mode. |
@@ -44,6 +46,22 @@ pub struct RenderedDoc {
     pub mtime: u64,
     pub revision: FileRevision,
     pub local_images: Vec<String>,
+}
+
+pub struct EditableDocument {
+    pub source: String,
+    pub line_separator: String,
+    pub document: RenderedDoc,
+}
+
+pub enum MarkdownSaveResult {
+    Updated { document: RenderedDoc },
+    Conflict { latest: EditableDocument, reason: MarkdownSaveConflict },
+}
+
+pub enum MarkdownSaveConflict {
+    RevisionChanged,
+    FileReplaced,
 }
 
 pub enum TaskEditResult {
@@ -119,6 +137,7 @@ Capabilities are declared in `src-tauri/capabilities/default.json` and apply to 
 | `opener:default` + `opener:allow-reveal-item-in-dir` | Reveal in Finder via `tauri-plugin-opener` |
 | `window-state:default` | Persist and restore window bounds via `tauri-plugin-window-state` |
 | `store:default` | Read/write `state.json` via `tauri-plugin-store` |
+| `core:window:allow-destroy` | Allows the edit-session close guard to destroy the window only after a clean flush. |
 | `clipboard-manager:allow-write-text` | `copy_path` command (plain text) |
 | `clipboard-manager:allow-write-html` | `copy_html` command (HTML + plain text) |
 | `playwright:default` | Debug-only automation socket (compiled in always; only initialised in `#[cfg(debug_assertions)]` builds) |

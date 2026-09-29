@@ -24,9 +24,9 @@ export function initWatcher(getContainer: () => HTMLElement | null) {
     if (!doc) return;
     const prevHtml = doc.html;
     await before.markDirty(path, e.payload.mtime);
-    // Re-read after the async gap — activeDocId may have changed.
     const after = useStore.getState();
-    if (after.activeDocId !== path) return;
+    // Re-read after the async gap — activeDocId may have changed.
+    if (after.activeDocId !== path || after.editSession?.path === path) return;
     const nextHtml = after.openDocs.find(d => d.path === path)?.html;
     if (!nextHtml || nextHtml === prevHtml) return;
     // Defer until after React has committed the new HTML to the DOM.

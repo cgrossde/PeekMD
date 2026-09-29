@@ -14,6 +14,7 @@
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-write-html",
     "core:window:allow-set-size",
+    "core:window:allow-destroy",
     "opener:allow-reveal-item-in-dir"
   ]
 }

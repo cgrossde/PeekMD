@@ -35,10 +35,10 @@ export function Sidebar({ onResizeHandleMouseDown }: { onResizeHandleMouseDown: 
           break;
         }
         case 'close':
-          close(path);
+          void close(path);
           break;
         case 'close_others':
-          closeOthers(path);
+          void closeOthers(path);
           break;
       }
     });
@@ -64,8 +64,8 @@ export function Sidebar({ onResizeHandleMouseDown }: { onResizeHandleMouseDown: 
               doc={doc}
               active={doc.path === activeDocId}
               folder={parentFolder(doc.path)}
-              onActivate={() => activate(doc.path)}
-              onClose={() => close(doc.path)}
+              onActivate={() => { void activate(doc.path); }}
+              onClose={() => { void close(doc.path); }}
               onContext={handleContext(doc.path)}
             />
           ))}

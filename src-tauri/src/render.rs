@@ -1,5 +1,5 @@
 use std::fmt::Write as _;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::{FileExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -41,6 +41,27 @@ pub struct RenderedDoc {
 
 #[derive(Serialize, Clone)]
 #[serde(tag = "status", rename_all = "snake_case")]
+pub enum MarkdownSaveResult {
+    Updated { document: RenderedDoc },
+    Conflict { latest: EditableDocument, reason: MarkdownSaveConflict },
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum MarkdownSaveConflict {
+    RevisionChanged,
+    FileReplaced,
+}
+
+#[derive(Serialize, Clone)]
+pub struct EditableDocument {
+    pub source: String,
+    pub line_separator: String,
+    pub document: RenderedDoc,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(tag = "status", rename_all = "snake_case")]
 pub enum TaskEditResult {
     Updated { document: RenderedDoc },
     Conflict { document: RenderedDoc, reason: TaskEditConflict },
@@ -54,16 +75,23 @@ pub enum TaskEditConflict {
     FileReplaced,
     ConcurrentWrite,
 }
-
 #[derive(Default)]
-pub struct TaskEditState(pub Mutex<()>);
+pub struct DocumentEditState(pub Mutex<()>);
+
+fn validate_markdown_path(path: &Path) -> Result<(), String> {
+    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
+    if matches!(ext.as_str(), "md" | "markdown" | "mdown" | "mkd") {
+        Ok(())
+    } else {
+        Err(format!("not markdown: {}", path.display()))
+    }
+}
 
 struct FileSnapshot {
     bytes: Vec<u8>,
     metadata: std::fs::Metadata,
     revision: FileRevision,
 }
-
 
 #[derive(thiserror::Error, Debug)]
 pub enum RenderError {
@@ -309,15 +337,20 @@ fn read_snapshot(file: &mut std::fs::File) -> Result<FileSnapshot, std::io::Erro
     Ok(FileSnapshot { bytes, metadata, revision })
 }
 
-fn markdown_source(bytes: Vec<u8>) -> Result<String, RenderError> {
-    String::from_utf8(bytes).map_err(|err| RenderError::Io(std::io::Error::new(
+fn markdown_source(bytes: &[u8]) -> Result<&str, RenderError> {
+    std::str::from_utf8(bytes).map_err(|err| RenderError::Io(std::io::Error::new(
         std::io::ErrorKind::InvalidData,
         err,
     )))
 }
 
+
 fn render_snapshot(path: &Path, snapshot: &FileSnapshot) -> Result<RenderedDoc, RenderError> {
-    let source = markdown_source(snapshot.bytes.clone())?;
+    let source = markdown_source(&snapshot.bytes)?;
+    render_source(path, snapshot, source)
+}
+
+fn render_source(path: &Path, snapshot: &FileSnapshot, source: &str) -> Result<RenderedDoc, RenderError> {
     let opts = build_options();
     let start = std::time::Instant::now();
     let mut plugins = options::Plugins::default();
@@ -361,17 +394,120 @@ fn render_snapshot(path: &Path, snapshot: &FileSnapshot) -> Result<RenderedDoc, 
 
 #[tauri::command]
 pub fn render_markdown(path: PathBuf) -> Result<RenderedDoc, RenderError> {
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if !matches!(ext.as_str(), "md" | "markdown" | "mdown" | "mkd") {
-        return Err(RenderError::NotMarkdown(path.to_string_lossy().into_owned()));
-    }
+    validate_markdown_path(&path).map_err(|_| RenderError::NotMarkdown(path.to_string_lossy().into_owned()))?;
     let mut file = std::fs::File::open(&path)?;
     let snapshot = read_snapshot(&mut file)?;
     render_snapshot(&path, &snapshot)
+}
+
+fn line_separator(source: &str) -> &'static str {
+    let bytes = source.as_bytes();
+    for i in 0..bytes.len() {
+        match bytes[i] {
+            b'\r' if bytes.get(i + 1) == Some(&b'\n') => return "\r\n",
+            b'\r' | b'\n' => return if bytes[i] == b'\r' { "\r" } else { "\n" },
+            _ => {}
+        }
+    }
+    "\n"
+}
+
+fn editable_from_snapshot(path: &Path, snapshot: &FileSnapshot) -> Result<EditableDocument, RenderError> {
+    let source = markdown_source(&snapshot.bytes)?;
+    Ok(EditableDocument {
+        source: source.to_owned(),
+        line_separator: line_separator(source).to_owned(),
+        document: render_source(path, snapshot, source)?,
+    })
+}
+
+#[tauri::command]
+pub fn read_markdown_source(path: PathBuf) -> Result<EditableDocument, RenderError> {
+    validate_markdown_path(&path).map_err(|_| RenderError::NotMarkdown(path.to_string_lossy().into_owned()))?;
+    let mut file = std::fs::File::open(&path)?;
+    let snapshot = read_snapshot(&mut file)?;
+    editable_from_snapshot(&path, &snapshot)
+}
+
+fn markdown_conflict(path: &Path, reason: MarkdownSaveConflict) -> Result<MarkdownSaveResult, String> {
+    read_markdown_source(path.to_path_buf())
+        .map(|latest| MarkdownSaveResult::Conflict { latest, reason })
+        .map_err(|err| format!("markdown save conflict read failed: {err}"))
+}
+
+#[tauri::command]
+pub fn save_markdown_source(
+    state: tauri::State<'_, DocumentEditState>,
+    path: PathBuf,
+    source: String,
+    expected_revision: FileRevision,
+) -> Result<MarkdownSaveResult, String> {
+    save_markdown_source_inner(&state, path, source, expected_revision)
+}
+
+fn save_markdown_source_inner(
+    state: &DocumentEditState,
+    path: PathBuf,
+    source: String,
+    expected_revision: FileRevision,
+) -> Result<MarkdownSaveResult, String> {
+    validate_markdown_path(&path)?;
+    let _guard = state.0.lock();
+    let canonical = path.canonicalize().map_err(|err| format!("markdown save canonicalize failed: {err}"))?;
+    let mut file = std::fs::OpenOptions::new().read(true).write(true).open(&canonical)
+        .map_err(|err| format!("markdown save open failed: {err}"))?;
+    let initial = read_snapshot(&mut file).map_err(|err| format!("markdown save read failed: {err}"))?;
+    if initial.revision.file_id != expected_revision.file_id {
+        return markdown_conflict(&path, MarkdownSaveConflict::FileReplaced);
+    }
+    if initial.revision.sha256 != expected_revision.sha256 || initial.revision.len != expected_revision.len {
+        return markdown_conflict(&path, MarkdownSaveConflict::RevisionChanged);
+    }
+
+    // Render before mutating the existing inode. Writing through this descriptor
+    // preserves ownership/ACL metadata and means an editor that atomically
+    // replaces the path after this check receives a conflict during verification
+    // instead of being overwritten by a rename.
+    let target_metadata = file.metadata().map_err(|err| format!("markdown save stat failed: {err}"))?;
+    let planned = FileSnapshot {
+        bytes: source.as_bytes().to_vec(),
+        revision: revision_for(source.as_bytes(), &target_metadata),
+        metadata: target_metadata,
+    };
+    let document = render_source(&path, &planned, &source)
+        .map_err(|err| format!("markdown save render failed: {err}"))?;
+
+    file.seek(SeekFrom::Start(0)).map_err(|err| format!("markdown save recheck seek failed: {err}"))?;
+    let before_write = read_snapshot(&mut file).map_err(|err| format!("markdown save recheck failed: {err}"))?;
+    let current_path_metadata = std::fs::metadata(&canonical)
+        .map_err(|err| format!("markdown save recheck stat failed: {err}"))?;
+    if before_write.revision.file_id != initial.revision.file_id || file_id(&current_path_metadata) != initial.revision.file_id {
+        return markdown_conflict(&path, MarkdownSaveConflict::FileReplaced);
+    }
+    if before_write.revision.sha256 != initial.revision.sha256 || before_write.revision.len != initial.revision.len {
+        return markdown_conflict(&path, MarkdownSaveConflict::RevisionChanged);
+    }
+
+    file.set_len(0).map_err(|err| format!("markdown save truncate failed: {err}"))?;
+    file.seek(SeekFrom::Start(0)).map_err(|err| format!("markdown save write seek failed: {err}"))?;
+    file.write_all(source.as_bytes()).map_err(|err| format!("markdown save write failed: {err}"))?;
+    file.flush().map_err(|err| format!("markdown save flush failed: {err}"))?;
+    if let Err(err) = file.sync_all() {
+        tracing::warn!("markdown save file sync failed after commit: {err}");
+    }
+    match std::fs::metadata(&canonical) {
+        Ok(metadata) if file_id(&metadata) != initial.revision.file_id => {
+            return markdown_conflict(&path, MarkdownSaveConflict::FileReplaced);
+        }
+        Ok(_) => {}
+        Err(err) => tracing::warn!("markdown save path verification failed after commit: {err}"),
+    }
+    if let Some(parent) = canonical.parent() {
+        if let Err(err) = std::fs::File::open(parent).and_then(|dir| dir.sync_all()) {
+            tracing::warn!("markdown save directory sync failed after commit: {err}");
+        }
+    }
+    Ok(MarkdownSaveResult::Updated { document })
 }
 fn line_start(bytes: &[u8], line: usize) -> Option<usize> {
     if line == 0 { return None; }
@@ -380,15 +516,8 @@ fn line_start(bytes: &[u8], line: usize) -> Option<usize> {
     if line == current { return Some(offset); }
     while offset < bytes.len() {
         match bytes[offset] {
-            b'\n' => {
-                offset += 1;
-                current += 1;
-            }
-            b'\r' => {
-                offset += 1;
-                if bytes.get(offset) == Some(&b'\n') { offset += 1; }
-                current += 1;
-            }
+            b'\n' => { offset += 1; current += 1; }
+            b'\r' => { offset += 1; if bytes.get(offset) == Some(&b'\n') { offset += 1; } current += 1; }
             _ => offset += 1,
         }
         if line == current { return Some(offset); }
@@ -424,18 +553,12 @@ fn task_marker_offset(bytes: &[u8], line: usize, column: usize, checked: bool) -
     }).collect();
     if matches.len() != 1 { return Err(TaskEditConflict::MarkerChanged); }
     let pos = matches[0].symbol_sourcepos;
-    if matches[0].symbol.is_some() == checked {
-        return Err(TaskEditConflict::MarkerChanged);
-    }
+    if matches[0].symbol.is_some() == checked { return Err(TaskEditConflict::MarkerChanged); }
     let start = byte_offset_for_position(bytes, pos.start.line, pos.start.column);
     let end = byte_offset_for_position(bytes, pos.end.line, pos.end.column);
-    let (Some(start), Some(end)) = (start, end) else {
-        return Err(TaskEditConflict::MarkerChanged);
-    };
+    let (Some(start), Some(end)) = (start, end) else { return Err(TaskEditConflict::MarkerChanged); };
     let Some(&marker) = bytes.get(start) else { return Err(TaskEditConflict::MarkerChanged); };
-    if end != start || !matches!(marker, b' ' | b'x' | b'X') {
-        return Err(TaskEditConflict::MarkerChanged);
-    }
+    if end != start || !matches!(marker, b' ' | b'x' | b'X') { return Err(TaskEditConflict::MarkerChanged); }
     Ok(start)
 }
 
@@ -445,18 +568,9 @@ fn reconcile_conflict(path: &Path, reason: TaskEditConflict) -> Result<TaskEditR
         .map_err(|err| format!("checkbox reconciliation failed: {err}"))
 }
 
-fn validate_checkbox_path(path: &Path) -> Result<(), String> {
-    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
-    if matches!(ext.as_str(), "md" | "markdown" | "mdown" | "mkd") {
-        Ok(())
-    } else {
-        Err("invalid checkbox request: path is not Markdown".into())
-    }
-}
-
 #[tauri::command]
 pub fn set_task_checked(
-    state: tauri::State<'_, TaskEditState>,
+    state: tauri::State<'_, DocumentEditState>,
     path: PathBuf,
     task_line: usize,
     task_column: usize,
@@ -467,72 +581,40 @@ pub fn set_task_checked(
 }
 
 fn set_task_checked_inner(
-    state: &TaskEditState,
+    state: &DocumentEditState,
     path: PathBuf,
     task_line: usize,
     task_column: usize,
     expected_revision: FileRevision,
     checked: bool,
 ) -> Result<TaskEditResult, String> {
-    if task_line == 0 || task_column == 0 {
-        return Err("invalid checkbox request: task coordinates must be positive".into());
-    }
-    validate_checkbox_path(&path)?;
+    if task_line == 0 || task_column == 0 { return Err("invalid checkbox request: task coordinates must be positive".into()); }
+    validate_markdown_path(&path).map_err(|_| "invalid checkbox request: path is not Markdown".to_owned())?;
     let _guard = state.0.lock();
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&path)
+    let mut file = std::fs::OpenOptions::new().read(true).write(true).open(&path)
         .map_err(|err| format!("checkbox file open failed: {err}"))?;
-    let initial = read_snapshot(&mut file)
-        .map_err(|err| format!("checkbox file read failed: {err}"))?;
-    if initial.revision.file_id != expected_revision.file_id {
-        return reconcile_conflict(&path, TaskEditConflict::FileReplaced);
-    }
-    if initial.revision.sha256 != expected_revision.sha256 || initial.revision.len != expected_revision.len {
-        return reconcile_conflict(&path, TaskEditConflict::RevisionChanged);
-    }
+    let initial = read_snapshot(&mut file).map_err(|err| format!("checkbox file read failed: {err}"))?;
+    if initial.revision.file_id != expected_revision.file_id { return reconcile_conflict(&path, TaskEditConflict::FileReplaced); }
+    if initial.revision.sha256 != expected_revision.sha256 || initial.revision.len != expected_revision.len { return reconcile_conflict(&path, TaskEditConflict::RevisionChanged); }
     let offset = match task_marker_offset(&initial.bytes, task_line, task_column, checked) {
         Ok(offset) => offset,
         Err(reason) => return reconcile_conflict(&path, reason),
     };
-
-    let before_write = read_snapshot(&mut file)
-        .map_err(|err| format!("checkbox file read failed: {err}"))?;
-    if before_write.revision.file_id != initial.revision.file_id {
-        return reconcile_conflict(&path, TaskEditConflict::FileReplaced);
-    }
-    if before_write.revision.sha256 != initial.revision.sha256 || before_write.revision.len != initial.revision.len {
-        return reconcile_conflict(&path, TaskEditConflict::RevisionChanged);
-    }
-    let path_metadata = std::fs::metadata(&path)
-        .map_err(|err| format!("checkbox reconciliation failed: {err}"))?;
-    if file_id(&path_metadata) != initial.revision.file_id {
-        return reconcile_conflict(&path, TaskEditConflict::FileReplaced);
-    }
-
+    let before_write = read_snapshot(&mut file).map_err(|err| format!("checkbox file read failed: {err}"))?;
+    if before_write.revision.file_id != initial.revision.file_id { return reconcile_conflict(&path, TaskEditConflict::FileReplaced); }
+    if before_write.revision.sha256 != initial.revision.sha256 || before_write.revision.len != initial.revision.len { return reconcile_conflict(&path, TaskEditConflict::RevisionChanged); }
+    let path_metadata = std::fs::metadata(&path).map_err(|err| format!("checkbox reconciliation failed: {err}"))?;
+    if file_id(&path_metadata) != initial.revision.file_id { return reconcile_conflict(&path, TaskEditConflict::FileReplaced); }
     let desired = if checked { b'x' } else { b' ' };
-    let written = file.write_at(&[desired], offset as u64)
-        .map_err(|err| format!("checkbox write failed: {err}"))?;
-    if written != 1 {
-        return Err("checkbox write failed: short write".into());
-    }
+    if file.write_at(&[desired], offset as u64).map_err(|err| format!("checkbox write failed: {err}"))? != 1 { return Err("checkbox write failed: short write".into()); }
     file.sync_data().map_err(|err| format!("checkbox sync failed: {err}"))?;
-
-    let after_write = read_snapshot(&mut file)
-        .map_err(|err| format!("checkbox reconciliation failed: {err}"))?;
+    let after_write = read_snapshot(&mut file).map_err(|err| format!("checkbox reconciliation failed: {err}"))?;
     let mut expected_bytes = initial.bytes.clone();
     expected_bytes[offset] = desired;
-    if after_write.bytes != expected_bytes {
-        return reconcile_conflict(&path, TaskEditConflict::ConcurrentWrite);
-    }
-    let path_metadata = std::fs::metadata(&path)
-        .map_err(|err| format!("checkbox reconciliation failed: {err}"))?;
-    if file_id(&path_metadata) != initial.revision.file_id {
-        return reconcile_conflict(&path, TaskEditConflict::FileReplaced);
-    }
-    let document = render_snapshot(&path, &after_write)
-        .map_err(|err| format!("checkbox reconciliation failed: {err}"))?;
+    if after_write.bytes != expected_bytes { return reconcile_conflict(&path, TaskEditConflict::ConcurrentWrite); }
+    let path_metadata = std::fs::metadata(&path).map_err(|err| format!("checkbox reconciliation failed: {err}"))?;
+    if file_id(&path_metadata) != initial.revision.file_id { return reconcile_conflict(&path, TaskEditConflict::FileReplaced); }
+    let document = render_snapshot(&path, &after_write).map_err(|err| format!("checkbox reconciliation failed: {err}"))?;
     Ok(TaskEditResult::Updated { document })
 }
 
@@ -549,6 +631,86 @@ mod tests {
         let arena = Arena::new();
         let root = parse_document(&arena, md, &opts);
         extract_headings(root, &opts)
+    }
+    #[test]
+    fn markdown_source_detects_line_endings_and_renders_same_snapshot() {
+        let dir = std::env::temp_dir().join(format!("peekmd-source-read-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("doc.md");
+        std::fs::write(&path, b"# Title\r\n\r\nbody\r\n").unwrap();
+        let editable = read_markdown_source(path.clone()).unwrap();
+        assert_eq!(editable.source, "# Title\r\n\r\nbody\r\n");
+        assert_eq!(editable.line_separator, "\r\n");
+        assert_eq!(editable.document.revision, revision_for_path(&path));
+        assert!(editable.document.html.contains("<h1"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn markdown_source_save_writes_checked_inode_and_returns_revision() {
+        let dir = std::env::temp_dir().join(format!("peekmd-source-save-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("doc.md");
+        std::fs::write(&path, "before\n").unwrap();
+        let editable = read_markdown_source(path.clone()).unwrap();
+        let state = DocumentEditState::default();
+        let result = save_markdown_source_inner(&state, path.clone(), "after\n".into(), editable.document.revision).unwrap();
+        let MarkdownSaveResult::Updated { document } = result else { panic!("expected updated result"); };
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "after\n");
+        assert_eq!(document.revision, revision_for_path(&path));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn markdown_source_save_conflicts_leave_external_bytes_untouched() {
+        let dir = std::env::temp_dir().join(format!("peekmd-source-conflict-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("doc.md");
+        std::fs::write(&path, "original\n").unwrap();
+        let editable = read_markdown_source(path.clone()).unwrap();
+        std::fs::write(&path, "external\n").unwrap();
+        let state = DocumentEditState::default();
+        let result = save_markdown_source_inner(&state, path.clone(), "local\n".into(), editable.document.revision).unwrap();
+        let MarkdownSaveResult::Conflict { latest, reason } = result else { panic!("expected conflict result"); };
+        assert!(matches!(reason, MarkdownSaveConflict::RevisionChanged));
+        assert_eq!(latest.source, "external\n");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "external\n");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn markdown_source_save_detects_replaced_inode() {
+        let dir = std::env::temp_dir().join(format!("peekmd-source-replaced-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("doc.md");
+        let replacement = dir.join("replacement.md");
+        std::fs::write(&path, "original\n").unwrap();
+        let editable = read_markdown_source(path.clone()).unwrap();
+        std::fs::write(&replacement, "replacement\n").unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        let state = DocumentEditState::default();
+        let result = save_markdown_source_inner(&state, path.clone(), "local\n".into(), editable.document.revision).unwrap();
+        let MarkdownSaveResult::Conflict { latest, reason } = result else { panic!("expected conflict result"); };
+        assert!(matches!(reason, MarkdownSaveConflict::FileReplaced));
+        assert_eq!(latest.source, "replacement\n");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn markdown_source_save_follows_symlink_without_replacing_it() {
+        let dir = std::env::temp_dir().join(format!("peekmd-source-symlink-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("target.md");
+        let path = dir.join("link.md");
+        std::fs::write(&target, "target\n").unwrap();
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        let editable = read_markdown_source(path.clone()).unwrap();
+        let state = DocumentEditState::default();
+        let result = save_markdown_source_inner(&state, path.clone(), "updated\n".into(), editable.document.revision).unwrap();
+        assert!(matches!(result, MarkdownSaveResult::Updated { .. }));
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "updated\n");
+        assert!(std::fs::symlink_metadata(&path).unwrap().file_type().is_symlink());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
@@ -773,7 +935,7 @@ mod tests {
         std::fs::write(&path, "- [!] no\n```\n- [ ] fence\n```\n<input type=\"checkbox\"> raw\n").unwrap();
         let doc = render_markdown(path.clone()).unwrap();
         assert_eq!(doc.html.matches("data-task-line=").count(), 0);
-        assert!(doc.html.contains("<input type=\"checkbox\"> raw"));
+        assert!(doc.html.contains("<input type=\"checkbox\">") && doc.html.contains("raw"));
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -781,7 +943,7 @@ mod tests {
     fn task_checkbox_updates_exactly_one_byte_and_preserves_uppercase_until_unchecked() {
         let (dir, path) = task_checkbox_dir("write");
         std::fs::write(&path, "before\n- [X] keep case\n- [ ] check\nafter\n").unwrap();
-        let state = TaskEditState::default();
+        let state = DocumentEditState::default();
         let revision = revision_for_path(&path);
         let updated = set_task_checked_inner(&state, path.clone(), 3, 4, revision, true).unwrap();
         assert!(matches!(updated, TaskEditResult::Updated { .. }));
@@ -816,7 +978,7 @@ mod tests {
     fn task_checkbox_stale_revision_and_invalid_requests_do_not_write() {
         let (dir, path) = task_checkbox_dir("conflict");
         std::fs::write(&path, "- [ ] task\n").unwrap();
-        let state = TaskEditState::default();
+        let state = DocumentEditState::default();
         let revision = revision_for_path(&path);
         std::fs::write(&path, "- [x] task\n").unwrap();
         let result = set_task_checked_inner(&state, path.clone(), 1, 4, revision, true).unwrap();
@@ -835,7 +997,7 @@ mod tests {
         assert!(doc.html.contains("data-task-line=\"1\" data-task-column=\"4\""));
         assert!(doc.html.contains("data-task-line=\"2\" data-task-column=\"6\""));
         assert!(doc.html.contains("data-task-line=\"3\" data-task-column=\"4\""));
-        let state = TaskEditState::default();
+        let state = DocumentEditState::default();
         let updated = set_task_checked_inner(&state, path.clone(), 2, 6, doc.revision, true).unwrap();
         assert!(matches!(updated, TaskEditResult::Updated { .. }));
         assert_eq!(std::fs::read(&path).unwrap(), b"- [ ] same\n  - [x] same\n- [ ] same\n");
@@ -849,7 +1011,7 @@ mod tests {
         std::fs::write(&target, "- [ ] target\n").unwrap();
         std::os::unix::fs::symlink(&target, &path).unwrap();
         let revision = revision_for_path(&path);
-        let state = TaskEditState::default();
+        let state = DocumentEditState::default();
         let result = set_task_checked_inner(&state, path.clone(), 1, 4, revision, true).unwrap();
         assert!(matches!(result, TaskEditResult::Updated { .. }));
         assert_eq!(std::fs::read(&target).unwrap(), b"- [x] target\n");
@@ -865,7 +1027,7 @@ mod tests {
         let revision = revision_for_path(&path);
         std::fs::write(&replacement, "- [ ] replacement\n").unwrap();
         std::fs::rename(&replacement, &path).unwrap();
-        let state = TaskEditState::default();
+        let state = DocumentEditState::default();
         let result = set_task_checked_inner(&state, path.clone(), 1, 4, revision, true).unwrap();
         assert!(matches!(result, TaskEditResult::Conflict { reason: TaskEditConflict::FileReplaced, .. }));
         assert_eq!(std::fs::read(&path).unwrap(), b"- [ ] replacement\n");

@@ -32,7 +32,7 @@ export function TopBar() {
             <button
               type="button"
               className="peekmd-topbar-icon-btn"
-              onClick={navigateBack}
+              onClick={() => { void navigateBack(); }}
               disabled={navBack.length === 0}
               aria-label="Navigate back (⌘←)"
               title="Back (⌘←)"
@@ -42,9 +42,8 @@ export function TopBar() {
             <button
               type="button"
               className="peekmd-topbar-icon-btn"
-              onClick={navigateForward}
               disabled={navForward.length === 0}
-              aria-label="Navigate forward (⌘→)"
+              onClick={() => { void navigateForward(); }}
               title="Forward (⌘→)"
             >
               <ChevronRight size={16} strokeWidth={1.75} />

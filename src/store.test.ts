@@ -1,20 +1,39 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { Text } from '@codemirror/state';
 import type { Persisted } from './lib/persistence';
 
 const defaultRevision = { sha256: 'seed', len: 0, file_id: 'seed:1' };
-const rendered = new Map<string, { html: string; title: string; headings: never[]; revision: typeof defaultRevision }>();
+const rendered = new Map<string, { html: string; title: string; headings: never[]; revision: typeof defaultRevision; local_images: string[] }>();
+const sources = new Map<string, string>();
 function seed(path: string, html = `<p>${path}</p>`, revision = defaultRevision) {
-  rendered.set(path, { html, title: path.split('/').pop()!.replace(/\.md$/, ''), headings: [], revision });
+  rendered.set(path, { html, title: path.split('/').pop()!.replace(/\.md$/, ''), headings: [], revision, local_images: [] });
+  sources.set(path, `# ${path}\n`);
 }
 let taskResponse: unknown = null;
 let taskFailure: Error | null = null;
+let saveResponses: unknown[] = [];
 
 const invoke = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
   if (cmd === 'render_markdown') {
     const path = args!.path as string;
     const doc = rendered.get(path);
     if (!doc) throw new Error(`ENOENT: ${path}`);
-    return { html: doc.html, title: doc.title, path, headings: doc.headings, mtime: 0, revision: doc.revision, local_images: [] };
+    return { html: doc.html, title: doc.title, path, headings: doc.headings, mtime: 0, revision: doc.revision, local_images: doc.local_images };
+  }
+  if (cmd === 'read_markdown_source') {
+    const path = args!.path as string;
+    const doc = rendered.get(path);
+    if (!doc) throw new Error(`ENOENT: ${path}`);
+    return { source: sources.get(path) ?? '', line_separator: '\n', document: { ...doc, path, mtime: 0 } };
+  }
+  if (cmd === 'save_markdown_source') {
+    const response = saveResponses.shift();
+    if (response instanceof Promise) return response;
+    if (response) return response;
+    const path = args!.path as string;
+    const doc = rendered.get(path)!;
+    sources.set(path, args!.source as string);
+    return { status: 'updated', document: { ...doc, path, mtime: 0 } };
   }
   if (cmd === 'set_task_checked') {
     if (taskFailure) throw taskFailure;
@@ -37,6 +56,8 @@ beforeEach(() => {
   invoke.mockClear();
   loadState.mockReset();
   rendered.clear();
+  sources.clear();
+  saveResponses = [];
   seed('/docs/a.md');
   seed('/docs/b.md');
   taskResponse = null;
@@ -95,12 +116,12 @@ describe('navigation history', () => {
   it('navigateBack/navigateForward move activeDocId and swap the stacks', async () => {
     await useStore.getState().openFile('/docs/a.md');
     await useStore.getState().openFile('/docs/b.md');
-    useStore.getState().navigateBack();
+    await useStore.getState().navigateBack();
     expect(useStore.getState().activeDocId).toBe('/docs/a.md');
     expect(useStore.getState().navBack).toEqual([]);
     expect(useStore.getState().navForward).toEqual(['/docs/b.md']);
 
-    useStore.getState().navigateForward();
+    await useStore.getState().navigateForward();
     expect(useStore.getState().activeDocId).toBe('/docs/b.md');
     expect(useStore.getState().navForward).toEqual([]);
     expect(useStore.getState().navBack).toEqual(['/docs/a.md']);
@@ -108,7 +129,7 @@ describe('navigation history', () => {
 
   it('does not push history when activate is called with pushHistory: false', async () => {
     await useStore.getState().openFile('/docs/a.md');
-    useStore.getState().activate('/docs/a.md', { pushHistory: false });
+    await useStore.getState().activate('/docs/a.md', { pushHistory: false });
     expect(useStore.getState().navBack).toEqual([]);
   });
 
@@ -185,9 +206,9 @@ describe('close / closeOthers', () => {
     await useStore.getState().openFile('/docs/a.md');
     await useStore.getState().openFile('/docs/b.md');
     await useStore.getState().openFile('/docs/c.md');
-    useStore.getState().activate('/docs/b.md');
+    await useStore.getState().activate('/docs/b.md');
 
-    useStore.getState().close('/docs/b.md');
+    await useStore.getState().close('/docs/b.md');
 
     expect(useStore.getState().openDocs.map(d => d.path)).toEqual(['/docs/c.md', '/docs/a.md']);
     expect(useStore.getState().activeDocId).toBe('/docs/a.md');
@@ -197,7 +218,7 @@ describe('close / closeOthers', () => {
     await useStore.getState().openFile('/docs/a.md');
     await useStore.getState().openFile('/docs/b.md');
 
-    useStore.getState().close('/docs/b.md');
+    await useStore.getState().close('/docs/b.md');
 
     expect(useStore.getState().activeDocId).toBe('/docs/a.md');
   });
@@ -206,7 +227,7 @@ describe('close / closeOthers', () => {
     await useStore.getState().openFile('/docs/a.md');
     await useStore.getState().openFile('/docs/b.md');
 
-    useStore.getState().close('/docs/a.md');
+    await useStore.getState().close('/docs/a.md');
 
     const recent = useStore.getState().recentlyViewed;
     expect(recent[0].path).toBe('/docs/a.md');
@@ -217,7 +238,7 @@ describe('close / closeOthers', () => {
     for (let i = 0; i < 25; i++) {
       seed(`/docs/gen-${i}.md`);
       await useStore.getState().openFile(`/docs/gen-${i}.md`);
-      useStore.getState().close(`/docs/gen-${i}.md`);
+      await useStore.getState().close(`/docs/gen-${i}.md`);
     }
     const recent = useStore.getState().recentlyViewed;
     expect(recent).toHaveLength(20);
@@ -229,7 +250,7 @@ describe('close / closeOthers', () => {
     await useStore.getState().openFile('/docs/b.md');
     await useStore.getState().openFile('/docs/c.md');
 
-    useStore.getState().closeOthers('/docs/b.md');
+    await useStore.getState().closeOthers('/docs/b.md');
 
     expect(useStore.getState().openDocs.map(d => d.path)).toEqual(['/docs/b.md']);
   });
@@ -274,7 +295,7 @@ describe('activate', () => {
     await useStore.getState().markDirty('/docs/a.md', 999); // flags dirty, html still stale
     invoke.mockClear();
 
-    useStore.getState().activate('/docs/a.md');
+    await useStore.getState().activate('/docs/a.md');
 
     await vi.waitFor(() => {
 
@@ -290,7 +311,7 @@ describe('activate', () => {
     await useStore.getState().openFile('/docs/b.md');
     invoke.mockClear();
 
-    useStore.getState().activate('/docs/a.md');
+    await useStore.getState().activate('/docs/a.md');
     await Promise.resolve();
 
     expect(invoke).not.toHaveBeenCalledWith('render_markdown', expect.anything());
@@ -305,10 +326,10 @@ describe('activate', () => {
 
     const navigatedAt = '2026-09-04T07:00:00.000Z';
     vi.setSystemTime(new Date(navigatedAt));
-    useStore.getState().activate('/docs/b.md');
+    await useStore.getState().activate('/docs/b.md');
     expect(useStore.getState().openDocs.find(d => d.path === '/docs/b.md')?.openedAt).toBe(original);
 
-    useStore.getState().activate('/docs/a.md');
+    await useStore.getState().activate('/docs/a.md');
     expect(useStore.getState().openDocs.find(d => d.path === '/docs/a.md')?.openedAt).toBe(navigatedAt);
     expect(useStore.getState().openDocs.find(d => d.path === '/docs/b.md')?.openedAt).toBe(original);
   });
@@ -389,5 +410,52 @@ describe('toggleTheme', () => {
     expect(first === 'light' || first === 'dark').toBe(true);
     useStore.getState().toggleTheme();
     expect(useStore.getState().ui.themeOverride).not.toBe(first);
+  });
+});
+
+describe('Markdown edit session', () => {
+  function updatedResponse(path: string) {
+    const document = rendered.get(path)!;
+    return { status: 'updated', document: { ...document, path, mtime: 1 } };
+  }
+
+  it('keeps a second draft and queues it after an in-flight save', async () => {
+    await useStore.getState().openFile('/docs/a.md');
+    expect(await useStore.getState().beginEditing()).toBe(true);
+    const gate = Promise.withResolvers<unknown>();
+    saveResponses = [gate.promise, updatedResponse('/docs/a.md')];
+    useStore.getState().updateEditDraft(Text.of(['first']));
+    const first = useStore.getState().saveEdit();
+    useStore.getState().updateEditDraft(Text.of(['second']));
+    gate.resolve(updatedResponse('/docs/a.md'));
+    await first;
+    await vi.waitFor(() => expect(invoke.mock.calls.filter(call => call[0] === 'save_markdown_source')).toHaveLength(2));
+    expect(useStore.getState().editSession?.status).toBe('clean');
+  });
+
+  it('retains a local draft and pauses autosave on conflict until reload', async () => {
+    await useStore.getState().openFile('/docs/a.md');
+    await useStore.getState().beginEditing();
+    useStore.getState().updateEditDraft(Text.of(['local draft']));
+    const latest = { source: 'disk\n', line_separator: '\n', document: { ...rendered.get('/docs/a.md')!, path: '/docs/a.md', mtime: 2 } };
+    saveResponses = [{ status: 'conflict', latest, reason: 'revision_changed' }];
+    expect(await useStore.getState().saveEdit()).toBe(false);
+    expect(useStore.getState().editSession?.draft.toString()).toBe('local draft');
+    expect(useStore.getState().editSession?.status).toBe('conflict');
+    useStore.getState().reloadEditFromDisk();
+    expect(useStore.getState().editSession?.draft.toString()).toBe('disk\n');
+    expect(useStore.getState().editSession?.status).toBe('clean');
+  });
+
+  it('blocks switching when a dirty edit cannot be flushed', async () => {
+    await useStore.getState().openFile('/docs/a.md');
+    await useStore.getState().openFile('/docs/b.md');
+    await useStore.getState().activate('/docs/a.md');
+    await useStore.getState().beginEditing();
+    useStore.getState().updateEditDraft(Text.of(['unsaved']));
+    saveResponses = [Promise.reject(new Error('disk full'))];
+    expect(await useStore.getState().activate('/docs/b.md')).toBe(false);
+    expect(useStore.getState().activeDocId).toBe('/docs/a.md');
+    expect(useStore.getState().editSession?.status).toBe('error');
   });
 });

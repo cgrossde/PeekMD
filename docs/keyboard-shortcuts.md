@@ -18,6 +18,14 @@ These handlers live in `src/lib/keybindings.ts`, installed once by `installGloba
 | `⌘P` | Print / Save as PDF | Calls `window.print()`; triggers the macOS native print dialog. |
 | `⌘1` – `⌘9` | Activate document N | Activates `openDocs[N-1]` by position. No-op if that slot is empty. |
 
+## Markdown edit mode
+
+| Chord | Action | Notes |
+| --- | --- | --- |
+| `⌘Enter` | Enter or leave Markdown edit mode | Uses CodeMirror source editing. Leaving waits for a clean autosave; conflicts and save errors keep the editor open. |
+
+Markdown punctuation remains visible. Links require `⌘`-click; ordinary preview text clicks place a visual cursor, while native browser drag-selection remains local to the preview. PeekMD remembers each document's editor cursor for the current app session. Switching between preview and edit mode maps the top visible rendered block to its source line, so scrolling either surface returns to the same document region on the other surface.
+
 ## Document navigation
 
 | Chord | Action | Notes |

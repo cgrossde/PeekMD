@@ -132,6 +132,22 @@ pub struct RenderedDoc {
 
 `title` is the file stem (e.g., `README` for `README.md`) derived from `path.file_stem()`. There is no front-matter title extraction — PeekMD strips front matter but does not parse it.
 
+## Source-preserving edit mode
+
+`read_markdown_source` validates UTF-8 once, detects the first line separator, and renders the same borrowed source snapshot returned to CodeMirror. The editor keeps Markdown punctuation and uses the GFM parser only for semantic highlighting; comrak remains the preview authority.
+
+`save_markdown_source` compares inode identity, SHA-256, and byte length with the session's `FileRevision`, renders the new source before mutation, rechecks the canonical target, then truncates and writes through the checked opened inode. This preserves symlink targets and the existing file metadata. File and parent-directory sync failures are warned after the committed bytes; a later inode replacement is returned as a conflict. A stale target returns the latest `EditableDocument` without writing the local draft.
+
+Cursor and scroll state are independent and retained per open document for the current app session. The editor restores the exact CodeMirror cursor offset when source mode is reopened. Preview/editor transitions use comrak `data-sourcepos` ranges to map the top visible rendered block to a source line; multiline blocks use an estimated line position within the rendered element so both surfaces reopen at the same region.
+
+The editor uses the viewer's system sans-serif stack, 16 px type, and 24 px line rhythm so source and preview preserve visual order during mode switches. The editor is left-aligned in the document area, capped at the viewer's 980 px width, and uses reduced top/left insets so source text lines up with preview content after accounting for the line-number gutter. Line numbers use the bundled JetBrains Mono-style monospace face; Markdown syntax highlighting styles headings, emphasis, links, quotes, and inline code without recoloring list text. The editor has no visible focus outline.
+
+## Read-only preview cursor
+
+The rendered preview remains read-only HTML. An ordinary text click creates a transient blue overlay cursor; the preview is never `contenteditable`, so WebKit cannot mutate the rendered DOM. Native browser drag-selection is not transferred into source mode. Clicking links, task checkboxes, Mermaid controls, or document whitespace keeps their existing behavior or clears the cursor.
+
+`⌘Enter` continues to enter or leave CodeMirror edit mode. CodeMirror retains one cursor offset per open document for the current app session, while the existing source-line scroll anchor remains independent. No preview selection or source-selection mapping is persisted or transferred.
+
 ## Error handling
 
 `render_markdown` returns `Result<RenderedDoc, RenderError>`:

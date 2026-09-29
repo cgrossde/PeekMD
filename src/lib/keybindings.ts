@@ -1,8 +1,9 @@
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useStore } from '../store';
 
-export function installGlobalKeybindings(): () => void {
+export function installGlobalKeybindings(toggleEditMode: () => void | Promise<unknown>): () => void {
   const handler = (e: KeyboardEvent) => {
+    if (e.defaultPrevented) return;
     if (!e.metaKey) return;
     const k = e.key.toLowerCase();
     const st = useStore.getState();
@@ -13,7 +14,11 @@ export function installGlobalKeybindings(): () => void {
     // Both overlays bind their own ⌘K/⌘F/Escape/arrow handling directly on
     // their input element, so this early return doesn't affect them.
     if (st.ui.paletteOpen || st.ui.findOpen) return;
-
+    if (k === 'enter') {
+      e.preventDefault();
+      void toggleEditMode();
+      return;
+    }
     // ⌘O — open file
     if (k === 'o' && !e.shiftKey) {
       e.preventDefault();
@@ -31,7 +36,7 @@ export function installGlobalKeybindings(): () => void {
     // ⌘W — close active
     if (k === 'w' && !e.shiftKey) {
       e.preventDefault();
-      if (st.activeDocId) st.close(st.activeDocId);
+      if (st.activeDocId) void st.close(st.activeDocId);
       return;
     }
 
@@ -59,14 +64,14 @@ export function installGlobalKeybindings(): () => void {
     // ⌘← — navigate back
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      st.navigateBack();
+      void st.navigateBack();
       return;
     }
 
     // ⌘→ — navigate forward
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      st.navigateForward();
+      void st.navigateForward();
       return;
     }
 
@@ -75,7 +80,7 @@ export function installGlobalKeybindings(): () => void {
     if (!isNaN(n) && n >= 1 && n <= 9 && !e.shiftKey) {
       e.preventDefault();
       const doc = st.openDocs[n - 1];
-      if (doc) st.activate(doc.path);
+      if (doc) void st.activate(doc.path);
       return;
     }
 

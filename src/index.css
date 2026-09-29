@@ -94,6 +94,36 @@ body {
   padding: 45px;
 }
 
+.peekmd-preview-surface {
+  position: relative;
+}
+
+.peekmd-preview-caret {
+  position: absolute;
+  z-index: 2;
+  width: 2px;
+  min-height: 1em;
+  background: #0969da;
+  pointer-events: none;
+  animation: peekmd-preview-caret-blink 1s step-end infinite;
+}
+
+.peekmd-preview-caret[hidden] {
+  display: none;
+}
+
+@keyframes peekmd-preview-caret-blink {
+  50% { opacity: 0; }
+}
+
+[data-theme="dark"] .peekmd-preview-caret {
+  background: #58a6ff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .peekmd-preview-caret { animation: none; }
+}
+
 .task-list-item-checkbox:not(:disabled) {
   cursor: pointer;
 }
@@ -1413,3 +1443,29 @@ body {
   background: rgba(110,118,129,.2);
   border-color: transparent;
 }
+
+/* ── Markdown source editor ────────────────────────────────────────────── */
+.peekmd-editor-shell { box-sizing: border-box; width: 100%; max-width: 980px; margin: 0; padding: 18px 45px 45px 18px; color: var(--peekmd-editor-fg, #1f2328); --peekmd-editor-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.5; }
+.peekmd-editor { width: 100%; border: 1px solid transparent; border-radius: 8px; background: var(--peekmd-editor-bg, #fff); font-family: inherit; font-size: inherit; line-height: inherit; }
+.peekmd-editor .cm-editor { width: 100%; background: transparent; color: inherit; font-size: inherit; line-height: inherit; }
+.peekmd-editor .cm-content { caret-color: var(--peekmd-editor-fg, #1f2328); }
+.peekmd-editor .cm-cursor { border-left-color: var(--peekmd-editor-fg, #1f2328); }
+.peekmd-editor .cm-scroller { overflow: auto; font-family: inherit; line-height: inherit; }
+.peekmd-editor .cm-content { padding: 18px 0; min-height: 320px; line-height: inherit; }
+.peekmd-editor .cm-gutters { display: flex !important; flex: 0 0 auto; background: transparent; border: 0; color: var(--peekmd-editor-muted, #6e7781); font-family: var(--peekmd-editor-mono); font-size: 0.875em; }
+.peekmd-editor .cm-activeLine, .peekmd-editor .cm-activeLineGutter { background: color-mix(in srgb, var(--peekmd-editor-link, #0969da) 8%, transparent); }
+.peekmd-editor .cm-focused { outline: 0; }
+.peekmd-editor .cm-selectionBackground, .peekmd-editor .cm-content ::selection { background: color-mix(in srgb, var(--peekmd-editor-link, #0969da) 28%, transparent); }
+.peekmd-editor .cm-line.peekmd-editor-heading-1 { font-size: 1.75em; font-weight: 700; line-height: 1.25; }
+.peekmd-editor .cm-line.peekmd-editor-heading-2 { font-size: 1.45em; font-weight: 700; line-height: 1.3; }
+.peekmd-editor .cm-line.peekmd-editor-heading-3 { font-size: 1.25em; font-weight: 700; line-height: 1.35; }
+.peekmd-editor .cm-line.peekmd-editor-heading-4 { font-size: 1.1em; font-weight: 700; }
+.peekmd-editor .cm-line.peekmd-editor-heading-5, .peekmd-editor .cm-line.peekmd-editor-heading-6 { font-weight: 700; }
+.peekmd-editor-shell:focus-within .peekmd-editor { outline: none; }
+.peekmd-editor-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--peekmd-editor-border, #d0d7de); border-radius: 7px; color: var(--peekmd-editor-fg, #1f2328); background: var(--peekmd-editor-banner-bg, #fff8c5); font-family: 'Inter', sans-serif; font-size: 13px; }
+.peekmd-editor-banner-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.peekmd-editor-banner button { border: 1px solid var(--peekmd-editor-border, #d0d7de); border-radius: 5px; padding: 4px 8px; background: var(--peekmd-editor-bg, #fff); color: inherit; cursor: pointer; font: inherit; }
+.peekmd-editor-banner button:hover { border-color: var(--peekmd-editor-link, #0969da); }
+[data-theme="dark"] .peekmd-editor-shell { --peekmd-editor-bg: #0d1117; --peekmd-editor-fg: #e6edf3; --peekmd-editor-border: #30363d; --peekmd-editor-muted: #8b949e; --peekmd-editor-link: #58a6ff; --peekmd-editor-heading: #f0f6fc; --peekmd-editor-quote: #79c0ff; --peekmd-editor-list: #f2cc60; --peekmd-editor-banner-bg: #3b2f12; }
+[data-theme="light"] .peekmd-editor-shell { --peekmd-editor-bg: #fff; --peekmd-editor-fg: #1f2328; --peekmd-editor-border: #d0d7de; --peekmd-editor-muted: #6e7781; --peekmd-editor-link: #0969da; --peekmd-editor-heading: #1f2328; --peekmd-editor-quote: #0550ae; --peekmd-editor-list: #8250df; --peekmd-editor-banner-bg: #fff8c5; }
+@media (max-width: 767px) { .peekmd-editor-shell { padding: 15px 15px 15px 0; } }

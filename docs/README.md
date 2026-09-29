@@ -1,6 +1,6 @@
 # PeekMD Documentation
 
-PeekMD is a fast, offline, GitHub-flavored Markdown previewer for macOS. It lives next to your editor — open one file or many, and every save scrolls the viewport to the changed block and flashes it. Not an editor; not a cloud app. A reader that stays in sync.
+PeekMD is a fast, offline, GitHub-flavored Markdown previewer for macOS with a transient source-editing mode. It lives next to your editor — open one file or many, preview rendered Markdown, or press `⌘Enter` to edit the active source without leaving the app.
 
 ## Quick start
 
@@ -23,6 +23,7 @@ PeekMD is registered as the **default** handler for `.md`, `.markdown`, `.mdown`
 
 | Topic | File |
 | --- | --- |
+| Markdown source editing | [rendering.md#source-preserving-edit-mode](rendering.md#source-preserving-edit-mode) |
 | Keyboard shortcuts | [keyboard-shortcuts.md](keyboard-shortcuts.md) |
 | Sidebar — open docs, recently viewed, resize, disambiguation | [sidebar.md](sidebar.md) |
 | Live reload and scroll-to-change | [live-reload.md](live-reload.md) |

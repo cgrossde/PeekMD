@@ -49,7 +49,7 @@ export function CommandPalette() {
   const activeDoc = openDocs.find(d => d.path === activeDocId);
 
   const items: Item[] = [
-    ...openDocs.map(d => ({ id: 'doc:' + d.path, label: d.title, secondary: d.path, kind: 'doc' as const, run: () => { activate(d.path); setPalette(false); } })),
+    ...openDocs.map(d => ({ id: 'doc:' + d.path, label: d.title, secondary: d.path, kind: 'doc' as const, run: () => { void activate(d.path); setPalette(false); } })),
     ...recentlyViewed.map(r => ({ id: 'viewed:' + r.path, label: 'View: ' + (r.title || stemName(r.path)), secondary: r.path, kind: 'recent' as const, run: () => { void reopenViewed(r.path); setPalette(false); } })),
     ...(activeDoc?.headings.filter(h => h.level <= 3) ?? []).map(h => ({ id: 'h:' + h.id, label: 'Jump to: ' + h.text, secondary: `H${h.level}`, kind: 'heading' as const, run: () => { location.hash = '#' + h.id; setPalette(false); } })),
     { id: 'cmd:sidebar', label: 'Toggle sidebar', kind: 'cmd', run: () => { setSidebar(!sidebarVisible); setPalette(false); } },
