@@ -5,7 +5,9 @@ export default defineConfig({
   projects: [
     {
       name: 'browser',
-      use: { ...devices['Desktop Chrome'], screenshot: 'only-on-failure', trace: 'retain-on-failure' },
+      fullyParallel: true,
+      timeout: 10_000,
+      use: { ...devices['Desktop Chrome'], actionTimeout: 4_000, screenshot: 'only-on-failure', trace: 'retain-on-failure' },
     },
     {
       name: 'tauri',
