@@ -40,6 +40,27 @@ test('preserves the exact source cursor through repeated preview round trips', a
   await expect(referenceLine).toContainText('[Reference][] CURSOR AGAIN');
 });
 
+test('restores a cursor inside plain text after inline code', async ({ tauriPage }) => {
+  await tauriPage.keyboard.press('Meta+Enter');
+  const editor = tauriPage.locator('.cm-content');
+  const mixedLine = tauriPage.locator('.cm-line').nth(8);
+  await mixedLine.click();
+  await editor.press('Home');
+  for (let index = 0; index < 17; index += 1) await editor.press('ArrowRight');
+
+  await tauriPage.keyboard.press('Meta+Enter');
+  const previewCaret = tauriPage.locator('.peekmd-preview-caret');
+  await expect(previewCaret).toBeVisible();
+  expect(await previewCaret.evaluate((element: Element) => {
+    const selection = element.ownerDocument.getSelection();
+    return { text: selection?.anchorNode?.textContent, offset: selection?.anchorOffset };
+  })).toEqual({ text: ' and an image: ', offset: 4 });
+
+  await tauriPage.keyboard.press('Meta+Enter');
+  await tauriPage.keyboard.type('|');
+  await expect(mixedLine).toContainText('`inline code` and| an image:');
+});
+
 test('enters source mode with visible Markdown markers and styled headings', async ({ tauriPage }) => {
   await tauriPage.keyboard.press('Meta+Enter');
   await expect(tauriPage.locator('.cm-editor')).toBeVisible();

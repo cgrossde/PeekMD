@@ -1,4 +1,5 @@
 import { Text } from '@codemirror/state';
+import { domPointForSourceOffset } from '../components/MarkdownPreview';
 import { capturePreviewAnchor, parseSourcePosition, parseSourceRange, previewCursorToOffset, restorePreviewAnchor } from './sourcePosition';
 
 describe('source position anchors', () => {
@@ -80,5 +81,26 @@ describe('preview cursor source mapping', () => {
       renderedOffset: 9,
       sourceOffset: source.length,
     })).toBe(source.length);
+  });
+
+  it('maps a cursor inside plain text after an inline code span', () => {
+    const line = '`inline code` and an image: ![alt](missing-image.png)';
+    const source = Text.of([line]);
+    const article = document.createElement('article');
+    article.innerHTML = '<p data-sourcepos="1:1-1:53"><code data-sourcepos="1:1-1:13">inline code</code> and an image: <img data-sourcepos="1:29-1:53" alt="alt"></p>';
+    const offset = line.indexOf(' and an image:') + ' and'.length;
+    const point = domPointForSourceOffset(article, source, offset);
+    expect(point?.node.data).toBe(' and an image: ');
+    expect(point?.offset).toBe(4);
+  });
+
+  it('maps a clicked plain-text segment after inline Markdown', () => {
+    const line = '`inline code` and an image: ![alt](missing-image.png)';
+    const source = Text.of([line]);
+    expect(previewCursorToOffset(source, {
+      sourceRange: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 53 },
+      renderedText: ' and an image: ',
+      renderedOffset: 4,
+    })).toBe(17);
   });
 });

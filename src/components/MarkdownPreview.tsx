@@ -38,25 +38,26 @@ function textNodes(element: Element): globalThis.Text[] {
   return result;
 }
 
-function cursorFromRange(range: Range, article: HTMLElement): PreviewCursor | null {
+function cursorFromRange(range: Range): PreviewCursor | null {
   if (range.startContainer.nodeType !== Node.TEXT_NODE) return null;
   const sourceElement = range.startContainer.parentElement?.closest<HTMLElement>('[data-sourcepos]');
   const sourceRange = parseSourceRange(sourceElement?.getAttribute('data-sourcepos') ?? '');
   if (!sourceElement || !sourceRange) return null;
-  const walker = article.ownerDocument.createTreeWalker(sourceElement, NodeFilter.SHOW_TEXT);
-  let renderedOffset = 0;
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    if (node === range.startContainer) {
-      renderedOffset += range.startOffset;
-      break;
-    }
-    renderedOffset += node.textContent?.length ?? 0;
-  }
-  return { sourceRange, renderedText: sourceElement.textContent ?? '', renderedOffset };
+  return { sourceRange, renderedText: range.startContainer.textContent ?? '', renderedOffset: range.startOffset };
 }
 
-function domPointForSourceOffset(article: HTMLElement, source: Text, offset: number): { node: globalThis.Text; offset: number } | null {
+function pointAtRenderedOffset(nodes: globalThis.Text[], offset: number): { node: globalThis.Text; offset: number } | null {
+  if (nodes.length === 0) return null;
+  let remaining = Math.max(offset, 0);
+  for (const node of nodes) {
+    if (remaining <= node.data.length) return { node, offset: remaining };
+    remaining -= node.data.length;
+  }
+  const node = nodes[nodes.length - 1];
+  return { node, offset: node.data.length };
+}
+
+export function domPointForSourceOffset(article: HTMLElement, source: Text, offset: number): { node: globalThis.Text; offset: number } | null {
   const candidates = Array.from(article.querySelectorAll<HTMLElement>('[data-sourcepos]'))
     .map(element => ({ element, range: parseSourceRange(element.getAttribute('data-sourcepos') ?? '') }))
     .filter((entry): entry is { element: HTMLElement; range: SourcePositionRange } => entry.range !== null)
@@ -67,11 +68,28 @@ function domPointForSourceOffset(article: HTMLElement, source: Text, offset: num
     const nodes = textNodes(candidate.element);
     if (nodes.length === 0) continue;
     const sourceText = source.sliceString(candidate.offsets.from, candidate.offsets.to);
+    let searchFrom = 0;
+    const segments = nodes.flatMap(node => {
+      if (!node.data) return [];
+      const start = sourceText.indexOf(node.data, searchFrom);
+      if (start < 0) return [];
+      searchFrom = start + node.data.length;
+      return [{ node, from: candidate.offsets.from + start, to: candidate.offsets.from + searchFrom }];
+    });
+    const containing = segments.find(segment => offset >= segment.from && offset <= segment.to);
+    if (containing) return { node: containing.node, offset: offset - containing.from };
+    if (segments.length > 0) {
+      const nearest = segments.reduce((best, segment) => {
+        const bestDistance = offset < best.from ? best.from - offset : offset - best.to;
+        const distance = offset < segment.from ? segment.from - offset : offset - segment.to;
+        return distance < bestDistance ? segment : best;
+      });
+      return { node: nearest.node, offset: offset < nearest.from ? 0 : nearest.node.data.length };
+    }
     const renderedText = candidate.element.textContent ?? '';
     const renderedStart = sourceText.indexOf(renderedText);
     const local = renderedStart >= 0 ? offset - candidate.offsets.from - renderedStart : 0;
-    const node = nodes[0];
-    return { node, offset: Math.min(Math.max(local, 0), node.data.length) };
+    return pointAtRenderedOffset(nodes, local);
   }
   return null;
 }
@@ -111,13 +129,13 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreview
     if (frameRef.current === null) frameRef.current = requestAnimationFrame(positionCaret);
   };
 
-  const applyRange = (range: Range, article: HTMLElement): boolean => {
+  const applyRange = (range: Range): boolean => {
     const selection = window.getSelection();
     if (!selection) return false;
     selection.removeAllRanges();
     selection.addRange(range);
     caretRangeRef.current = range;
-    cursorRef.current = cursorFromRange(range, article);
+    cursorRef.current = cursorFromRange(range);
     scheduleCaretPosition();
     return true;
   };
@@ -131,7 +149,7 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreview
       const range = article.ownerDocument.createRange();
       range.setStart(point.node, point.offset);
       range.collapse(true);
-      if (!applyRange(range, article)) return false;
+      if (!applyRange(range)) return false;
       if (cursorRef.current) cursorRef.current = { ...cursorRef.current, sourceOffset: offset };
       return true;
     },
@@ -155,7 +173,7 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreview
         return;
       }
       range.collapse(true);
-      applyRange(range, article);
+      applyRange(range);
     };
 
     const onMouseUp = () => {
