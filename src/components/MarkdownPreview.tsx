@@ -1,6 +1,6 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react';
 import type { Text } from '@codemirror/state';
-import { parseSourceRange, sourceRangeToOffsets, type PreviewCursor, type SourcePositionRange } from '../lib/sourcePosition';
+import { parseSourceRange, sourceOffsetToRenderedOffset, sourceRangeToOffsets, type PreviewCursor, type SourcePositionRange } from '../lib/sourcePosition';
 
 type MarkdownPreviewProps = {
   html: string;
@@ -87,9 +87,9 @@ export function domPointForSourceOffset(article: HTMLElement, source: Text, offs
       return { node: nearest.node, offset: offset < nearest.from ? 0 : nearest.node.data.length };
     }
     const renderedText = candidate.element.textContent ?? '';
-    const renderedStart = sourceText.indexOf(renderedText);
-    const local = renderedStart >= 0 ? offset - candidate.offsets.from - renderedStart : 0;
-    return pointAtRenderedOffset(nodes, local);
+    const local = sourceOffsetToRenderedOffset(sourceText, renderedText, offset - candidate.offsets.from);
+    if (local !== null) return pointAtRenderedOffset(nodes, local);
+    return pointAtRenderedOffset(nodes, 0);
   }
   return null;
 }
@@ -155,12 +155,37 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreview
     },
   }), []);
 
+  useLayoutEffect(() => {
+    if (!caretRangeRef.current && !cursorRef.current) return;
+    window.getSelection()?.removeAllRanges();
+    hideCaret();
+  }, [html]);
+
   useEffect(() => {
     const article = articleRef.current;
     const surface = surfaceRef.current;
     if (!article || !surface) return;
+    let dragStart: { x: number; y: number } | null = null;
+    let dragged = false;
+
+    const onMouseDown = (event: MouseEvent) => {
+      dragStart = { x: event.clientX, y: event.clientY };
+      dragged = false;
+    };
+
+    const onMouseMove = (event: MouseEvent) => {
+      if (!dragStart) return;
+      if (Math.hypot(event.clientX - dragStart.x, event.clientY - dragStart.y) >= 3) dragged = true;
+    };
 
     const onClick = (event: MouseEvent) => {
+      const selection = window.getSelection();
+      const hasTextSelection = Boolean(selection && !selection.isCollapsed && article.contains(selection.anchorNode) && article.contains(selection.focusNode));
+      if (dragged || hasTextSelection) {
+        dragged = false;
+        return;
+      }
+      dragged = false;
       if (isInteractiveTarget(event.target, article)) {
         hideCaret();
         return;
@@ -177,8 +202,12 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreview
     };
 
     const onMouseUp = () => {
+      dragStart = null;
       const selection = window.getSelection();
-      if (selection && !selection.isCollapsed && article.contains(selection.anchorNode) && article.contains(selection.focusNode)) hideCaret();
+      if (selection && !selection.isCollapsed && article.contains(selection.anchorNode) && article.contains(selection.focusNode)) {
+        dragged = true;
+        hideCaret();
+      }
     };
 
     const onSurfaceClick = (event: MouseEvent) => {
@@ -188,10 +217,14 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreview
       }
     };
 
+    article.addEventListener('mousedown', onMouseDown);
+    article.addEventListener('mousemove', onMouseMove);
     article.addEventListener('click', onClick);
     article.addEventListener('mouseup', onMouseUp);
     surface.addEventListener('click', onSurfaceClick);
     return () => {
+      article.removeEventListener('mousedown', onMouseDown);
+      article.removeEventListener('mousemove', onMouseMove);
       article.removeEventListener('click', onClick);
       article.removeEventListener('mouseup', onMouseUp);
       surface.removeEventListener('click', onSurfaceClick);

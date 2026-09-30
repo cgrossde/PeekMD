@@ -28,4 +28,9 @@ describe('markdownHrefAt', () => {
     const source = '[Read Me][]\n\n[read   me]: /docs/guide.md\n';
     expect(href(source, 'Read Me')).toBe('/docs/guide.md');
   });
+
+  it('does not take a later inline destination for a reference link', () => {
+    const source = '[Reference][]\n\n[Later](wrong.md)\n\n[reference]: right.md\n';
+    expect(href(source, 'Reference')).toBe('right.md');
+  });
 });

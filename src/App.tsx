@@ -178,11 +178,12 @@ export default function App() {
     let attempts = 0;
     const restore = () => {
       if (previewRef.current?.restoreCursor(pending.source, pending.offset)) {
-        pendingPreviewCursors.current.delete(path);
+        if (pendingPreviewCursors.current.get(path) === pending) pendingPreviewCursors.current.delete(path);
         return;
       }
       attempts += 1;
       if (attempts < 3) frame = requestAnimationFrame(restore);
+      else if (pendingPreviewCursors.current.get(path) === pending) pendingPreviewCursors.current.delete(path);
     };
     frame = requestAnimationFrame(restore);
     return () => cancelAnimationFrame(frame);

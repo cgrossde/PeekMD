@@ -4,10 +4,12 @@ test('transfers a clicked preview cursor into the focused editor', async ({ taur
   const leaf = tauriPage.locator('.markdown-body span[data-sourcepos="3:1-3:12"]');
   await leaf.click({ position: { x: 12, y: 8 } });
   await expect(tauriPage.locator('.peekmd-preview-caret')).toBeVisible();
+  const previewOffset = await leaf.evaluate((element: Element) => element.ownerDocument.getSelection()?.anchorOffset ?? -1);
   await tauriPage.keyboard.press('Meta+Enter');
   const editor = tauriPage.locator('.cm-content');
   await expect(editor).toBeVisible();
   expect(await editor.evaluate((element: Element) => element === document.activeElement)).toBe(true);
+  expect(Number(await tauriPage.locator('.peekmd-editor').getAttribute('data-cursor-offset'))).toBe(19 + previewOffset);
 });
 
 test('preserves the exact source cursor through repeated preview round trips', async ({ tauriPage }) => {
@@ -59,6 +61,43 @@ test('restores a cursor inside plain text after inline code', async ({ tauriPage
   await tauriPage.keyboard.press('Meta+Enter');
   await tauriPage.keyboard.type('|');
   await expect(mixedLine).toContainText('`inline code` and| an image:');
+});
+
+test('preserves native text selection instead of replacing it with a preview cursor', async ({ tauriPage }) => {
+  const text = tauriPage.locator('.markdown-body span[data-sourcepos="3:1-3:12"]');
+  const box = await text.boundingBox();
+  expect(box).not.toBeNull();
+  await tauriPage.mouse.move(box!.x + 2, box!.y + box!.height / 2);
+  await tauriPage.mouse.down();
+  await tauriPage.mouse.move(box!.x + box!.width - 2, box!.y + box!.height / 2, { steps: 5 });
+  await tauriPage.mouse.up();
+  expect(await tauriPage.evaluate<string>('window.getSelection()?.toString() ?? ""')).toContain('ntro block');
+  await expect(tauriPage.locator('.peekmd-preview-caret')).toBeHidden();
+});
+
+test('clears stale cursors and expires an unmappable blank-line restore', async ({ tauriPage }) => {
+  await tauriPage.keyboard.press('Meta+Enter');
+  const editor = tauriPage.locator('.cm-content');
+  await tauriPage.locator('.cm-line').nth(1).click();
+  await editor.press('Home');
+  await tauriPage.keyboard.press('Meta+Enter');
+  await tauriPage.locator('body').evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))));
+
+  await tauriPage.locator('.markdown-body span[data-sourcepos="3:1-3:12"]').click();
+  await expect(tauriPage.locator('.peekmd-preview-caret')).toBeVisible();
+  await tauriPage.evaluate(`(() => {
+    const current = Reflect.get(globalThis, '__editDocument');
+    Reflect.set(globalThis, '__editDocument', {
+      ...current,
+      html: '<p data-sourcepos="2:1-2:5">Blank now</p><p data-sourcepos="3:1-3:12"><span data-sourcepos="3:1-3:12">Intro block.</span></p>',
+      revision: { ...current.revision, sha256: 'reloaded' },
+    });
+  })()`);
+  await tauriPage.keyboard.press('Meta+r');
+  await expect(tauriPage.getByText('Blank now')).toBeVisible();
+  await tauriPage.locator('body').evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))));
+  await expect(tauriPage.locator('.peekmd-preview-caret')).toBeHidden();
+  expect(await tauriPage.evaluate<number>('window.getSelection()?.rangeCount ?? -1')).toBe(0);
 });
 
 test('enters source mode with visible Markdown markers and styled headings', async ({ tauriPage }) => {

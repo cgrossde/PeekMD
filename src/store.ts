@@ -21,7 +21,7 @@ export type Doc = {
 };
 export type RenderedDoc = { html: string; title: string; path: string; headings: Heading[]; mtime: number; revision: FileRevision; local_images: string[] };
 export type EditableDocument = { source: string; line_separator: string; document: RenderedDoc };
-export type MarkdownSaveConflict = 'revision_changed' | 'file_replaced';
+export type MarkdownSaveConflict = 'revision_changed' | 'file_replaced' | 'concurrent_write';
 export type MarkdownSaveResult =
   | { status: 'updated'; document: RenderedDoc }
   | { status: 'conflict'; latest: EditableDocument; reason: MarkdownSaveConflict };

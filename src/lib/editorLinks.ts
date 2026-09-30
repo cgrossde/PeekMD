@@ -1,7 +1,7 @@
 import { EditorState } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 
-type TreeNode = { name: string; from: number; to: number; parent: () => TreeNode | null; firstChild: () => TreeNode | null; nextSibling: () => TreeNode | null };
+type TreeNode = { name: string; from: number; to: number; parent: TreeNode | null };
 
 function decodeDestination(value: string): string {
   const unescaped = value.replace(/\\(.)/g, '$1');
@@ -66,7 +66,7 @@ function nodeAt(state: EditorState, pos: number): TreeNode | null {
   let node: TreeNode | null = syntaxTree(state).resolve(pos, -1) as unknown as TreeNode;
   while (node) {
     if (node.name === 'Link' || node.name === 'LinkReference' || node.name === 'Autolink' || node.name === 'URL') return node;
-    node = node.parent();
+    node = node.parent;
   }
   return null;
 }
@@ -75,11 +75,17 @@ export function markdownHrefAt(state: EditorState, pos: number): string | null {
   const node = nodeAt(state, pos);
   if (!node) return null;
   const raw = state.sliceDoc(node.from, node.to);
-  const source = state.sliceDoc(node.from);
   if (node.name === 'Autolink') return raw.startsWith('<') && raw.endsWith('>') ? decodeDestination(raw.slice(1, -1)) : decodeDestination(raw);
   if (node.name === 'URL') return decodeDestination(raw);
-  const inline = inlineDestination(source);
-  if (inline) return inline;
+  if (node.name === 'Link') {
+    const inline = inlineDestination(raw);
+    if (inline) return inline;
+    if (state.sliceDoc(node.to, node.to + 1) === '(') {
+      const parentEnd = node.parent?.to ?? node.to;
+      return inlineDestination(state.sliceDoc(node.from, parentEnd));
+    }
+  }
+  if (node.name !== 'Link' && node.name !== 'LinkReference') return null;
   const reference = /^\[([^\]\n]*)\](?:\[([^\]\n]*)\])?/.exec(raw);
   if (!reference) return null;
   const label = reference[2] || reference[1];

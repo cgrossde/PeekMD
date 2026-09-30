@@ -50,12 +50,67 @@ export function sourceRangeToOffsets(text: Text, range: SourcePositionRange): { 
   return to >= from ? { from, to } : { from: to, to: from };
 }
 
+function decodedSource(value: string): { text: string; sourceOffsets: number[] } {
+  if (typeof document === 'undefined' || !value.includes('&')) return { text: value, sourceOffsets: Array.from({ length: value.length + 1 }, (_, index) => index) };
+  const decoder = document.createElement('textarea');
+  const sourceOffsets = [0];
+  let text = '';
+  let index = 0;
+  while (index < value.length) {
+    const entity = /^&(?:[a-z][a-z0-9]+|#\d+|#x[0-9a-f]+);/i.exec(value.slice(index))?.[0];
+    if (entity) {
+      decoder.innerHTML = entity;
+      const decoded = decoder.value;
+      if (decoded !== entity) {
+        text += decoded;
+        index += entity.length;
+        for (let unit = 0; unit < decoded.length; unit += 1) sourceOffsets.push(index);
+        continue;
+      }
+    }
+    text += value[index];
+    index += 1;
+    sourceOffsets.push(index);
+  }
+  return { text, sourceOffsets };
+}
+
+export function renderedOffsetToSourceOffset(source: string, rendered: string, renderedOffset: number): number | null {
+  const directStart = source.indexOf(rendered);
+  if (directStart >= 0) return directStart + Math.min(Math.max(renderedOffset, 0), rendered.length);
+  const decoded = decodedSource(source);
+  const decodedStart = decoded.text.indexOf(rendered);
+  if (decodedStart < 0) return null;
+  const offset = decodedStart + Math.min(Math.max(renderedOffset, 0), rendered.length);
+  return decoded.sourceOffsets[offset] ?? null;
+}
+
+export function sourceOffsetToRenderedOffset(source: string, rendered: string, sourceOffset: number): number | null {
+  const directStart = source.indexOf(rendered);
+  if (directStart >= 0) return Math.min(Math.max(sourceOffset - directStart, 0), rendered.length);
+  const decoded = decodedSource(source);
+  const decodedStart = decoded.text.indexOf(rendered);
+  if (decodedStart < 0) return null;
+  const target = Math.min(Math.max(sourceOffset, 0), source.length);
+  let nearest = 0;
+  let distance = Number.POSITIVE_INFINITY;
+  for (let offset = 0; offset <= rendered.length; offset += 1) {
+    const sourceBoundary = decoded.sourceOffsets[decodedStart + offset];
+    if (sourceBoundary === undefined) break;
+    const candidateDistance = Math.abs(sourceBoundary - target);
+    if (candidateDistance < distance) {
+      nearest = offset;
+      distance = candidateDistance;
+    }
+  }
+  return nearest;
+}
+
 export function previewCursorToOffset(text: Text, cursor: PreviewCursor): number {
   if (cursor.sourceOffset !== undefined) return Math.min(Math.max(cursor.sourceOffset, 0), text.length);
   const range = sourceRangeToOffsets(text, cursor.sourceRange);
   const sourceText = text.sliceString(range.from, range.to);
-  const renderedStart = sourceText.indexOf(cursor.renderedText);
-  const local = renderedStart >= 0 ? renderedStart + Math.min(Math.max(cursor.renderedOffset, 0), cursor.renderedText.length) : 0;
+  const local = renderedOffsetToSourceOffset(sourceText, cursor.renderedText, cursor.renderedOffset) ?? 0;
   return Math.min(range.from + local, range.to);
 }
 

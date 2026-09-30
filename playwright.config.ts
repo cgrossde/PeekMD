@@ -6,7 +6,6 @@ export default defineConfig({
     {
       name: 'browser',
       fullyParallel: true,
-      timeout: 10_000,
       use: { ...devices['Desktop Chrome'], actionTimeout: 4_000, screenshot: 'only-on-failure', trace: 'retain-on-failure' },
     },
     {

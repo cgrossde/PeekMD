@@ -12,7 +12,7 @@ Frontend invocations use `invoke` from `@tauri-apps/api/core`.
 | --- | --- | --- | --- |
 | `render_markdown` | `path: PathBuf` | `Result<RenderedDoc, RenderError>` | Open one file snapshot, run comrak, extract headings and local images, and return its mtime and exact revision. Rejects non-Markdown extensions. |
 | `read_markdown_source` | `path: PathBuf` | `Result<EditableDocument, RenderError>` | Read one UTF-8 snapshot, detect its first line separator, render that same source, and return the editable source plus preview document. |
-| `save_markdown_source` | `path: PathBuf, source: String, expectedRevision: FileRevision` | `Result<MarkdownSaveResult, String>` | Recheck the canonical target, render before mutation, write through the existing inode, sync the file, and return the rendered revision. Conflicts return the latest editable snapshot without writing. |
+| `save_markdown_source` | `path: PathBuf, source: String, expectedRevision: FileRevision` | `Result<MarkdownSaveResult, String>` | Recheck the canonical target, render before mutation, write through the existing inode, sync, then reread and verify the committed bytes. Revision, inode-replacement, and concurrent same-inode write conflicts return the latest editable snapshot. |
 | `set_task_checked` | `path: PathBuf, taskLine: usize, taskColumn: usize, expectedRevision: FileRevision, checked: bool` | `Result<TaskEditResult, String>` | Validate one parser-owned task marker, then change exactly its one ASCII marker byte. Returns `updated` or a revision/marker/file conflict; never rewrites the whole file. |
 | `take_pending_paths` | — | `Vec<PathBuf>` | Drain the `PendingPaths` state (CLI args / macOS Open With) collected before the webview loaded. Called once on mount as a fallback to the `peekmd://open-files` event. |
 | `watch_paths` | `paths: Vec<PathBuf>` | `Result<(), String>` | Register paths with `WatcherState`. Watches each path's parent directory with `NonRecursive` mode. |
@@ -62,6 +62,7 @@ pub enum MarkdownSaveResult {
 pub enum MarkdownSaveConflict {
     RevisionChanged,
     FileReplaced,
+    ConcurrentWrite,
 }
 
 pub enum TaskEditResult {

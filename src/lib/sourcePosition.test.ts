@@ -1,6 +1,6 @@
 import { Text } from '@codemirror/state';
 import { domPointForSourceOffset } from '../components/MarkdownPreview';
-import { capturePreviewAnchor, parseSourcePosition, parseSourceRange, previewCursorToOffset, restorePreviewAnchor } from './sourcePosition';
+import { capturePreviewAnchor, parseSourcePosition, parseSourceRange, previewCursorToOffset, restorePreviewAnchor, sourceRangeToOffsets } from './sourcePosition';
 
 describe('source position anchors', () => {
   it('rejects malformed and inverted source ranges', () => {
@@ -102,5 +102,38 @@ describe('preview cursor source mapping', () => {
       renderedText: ' and an image: ',
       renderedOffset: 4,
     })).toBe(17);
+  });
+
+  it('maps decoded HTML entities in both directions', () => {
+    const source = Text.of(['A &amp; B']);
+    const range = { startLine: 1, startColumn: 1, endLine: 1, endColumn: 9 };
+    expect(previewCursorToOffset(source, { sourceRange: range, renderedText: 'A & B', renderedOffset: 3 })).toBe(7);
+    const article = document.createElement('article');
+    article.innerHTML = '<p data-sourcepos="1:1-1:9">A &amp; B</p>';
+    const point = domPointForSourceOffset(article, source, 7);
+    expect(point?.node.data).toBe('A & B');
+    expect(point?.offset).toBe(3);
+  });
+
+  it('converts UTF-8 source columns around Unicode text', () => {
+    const source = Text.of(['🙂 text']);
+    expect(sourceRangeToOffsets(source, { startLine: 1, startColumn: 6, endLine: 1, endColumn: 9 })).toEqual({ from: 3, to: 7 });
+  });
+
+  it('returns no DOM point for a blank source line', () => {
+    const source = Text.of(['text', '', 'next']);
+    const article = document.createElement('article');
+    article.innerHTML = '<p data-sourcepos="1:1-1:4">text</p><p data-sourcepos="3:1-3:4">next</p>';
+    expect(domPointForSourceOffset(article, source, source.line(2).from)).toBeNull();
+  });
+
+  it('maps image syntax to the nearest rendered text boundary', () => {
+    const line = '`inline code` and an image: ![alt](missing-image.png)';
+    const source = Text.of([line]);
+    const article = document.createElement('article');
+    article.innerHTML = '<p data-sourcepos="1:1-1:53"><code data-sourcepos="1:1-1:13">inline code</code> and an image: <img data-sourcepos="1:29-1:53" alt="alt"></p>';
+    const point = domPointForSourceOffset(article, source, line.indexOf('![alt]') + 2);
+    expect(point?.node.data).toBe(' and an image: ');
+    expect(point?.offset).toBe(' and an image: '.length);
   });
 });

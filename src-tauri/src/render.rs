@@ -51,6 +51,7 @@ pub enum MarkdownSaveResult {
 pub enum MarkdownSaveConflict {
     RevisionChanged,
     FileReplaced,
+    ConcurrentWrite,
 }
 
 #[derive(Serialize, Clone)]
@@ -451,6 +452,19 @@ fn save_markdown_source_inner(
     source: String,
     expected_revision: FileRevision,
 ) -> Result<MarkdownSaveResult, String> {
+    save_markdown_source_inner_with_post_write(state, path, source, expected_revision, |_| {})
+}
+
+fn save_markdown_source_inner_with_post_write<F>(
+    state: &DocumentEditState,
+    path: PathBuf,
+    source: String,
+    expected_revision: FileRevision,
+    post_write: F,
+) -> Result<MarkdownSaveResult, String>
+where
+    F: FnOnce(&Path),
+{
     validate_markdown_path(&path)?;
     let _guard = state.0.lock();
     let canonical = path.canonicalize().map_err(|err| format!("markdown save canonicalize failed: {err}"))?;
@@ -494,6 +508,11 @@ fn save_markdown_source_inner(
     file.flush().map_err(|err| format!("markdown save flush failed: {err}"))?;
     if let Err(err) = file.sync_all() {
         tracing::warn!("markdown save file sync failed after commit: {err}");
+    }
+    post_write(&canonical);
+    let after_write = read_snapshot(&mut file).map_err(|err| format!("markdown save verification failed: {err}"))?;
+    if after_write.bytes != source.as_bytes() {
+        return markdown_conflict(&path, MarkdownSaveConflict::ConcurrentWrite);
     }
     match std::fs::metadata(&canonical) {
         Ok(metadata) if file_id(&metadata) != initial.revision.file_id => {
@@ -673,6 +692,22 @@ mod tests {
         let result = save_markdown_source_inner(&state, path.clone(), "local\n".into(), editable.document.revision).unwrap();
         let MarkdownSaveResult::Conflict { latest, reason } = result else { panic!("expected conflict result"); };
         assert!(matches!(reason, MarkdownSaveConflict::RevisionChanged));
+        assert_eq!(latest.source, "external\n");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "external\n");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn markdown_source_save_detects_concurrent_same_inode_write() {
+        let dir = std::env::temp_dir().join(format!("peekmd-source-concurrent-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("doc.md");
+        std::fs::write(&path, "original\n").unwrap();
+        let editable = read_markdown_source(path.clone()).unwrap();
+        let state = DocumentEditState::default();
+        let result = save_markdown_source_inner_with_post_write(&state, path.clone(), "local\n".into(), editable.document.revision, |canonical| std::fs::write(canonical, "external\n").unwrap()).unwrap();
+        let MarkdownSaveResult::Conflict { latest, reason } = result else { panic!("expected conflict result"); };
+        assert!(matches!(reason, MarkdownSaveConflict::ConcurrentWrite));
         assert_eq!(latest.source, "external\n");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "external\n");
         std::fs::remove_dir_all(dir).ok();
