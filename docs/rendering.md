@@ -146,7 +146,7 @@ The editor uses the viewer's system sans-serif stack, 16 px type, and 24 px line
 
 The rendered preview remains read-only HTML. An ordinary text click creates a transient blue overlay cursor; the preview is never `contenteditable`, so WebKit cannot mutate the rendered DOM. Native browser drag-selection is not transferred into source mode. Clicking links, task checkboxes, Mermaid controls, or document whitespace keeps their existing behavior or clears the cursor.
 
-`⌘Enter` continues to enter or leave CodeMirror edit mode. CodeMirror retains one cursor offset per open document for the current app session, while the existing source-line scroll anchor remains independent. No preview selection or source-selection mapping is persisted or transferred.
+`⌘Enter` continues to enter or leave CodeMirror edit mode. A cursor established by clicking rendered text transfers to the corresponding source cursor when entering edit mode; Markdown punctuation falls back to the containing source-positioned construct. When CodeMirror returns to preview, PeekMD keeps the exact source offset alongside the synthetic rendered cursor, so reopening source mode does not collapse positions inside Markdown punctuation to the visible text boundary. CodeMirror retains one cursor offset per open document for the current app session, while the existing source-line scroll anchor remains independent. Preview selections are not transferred.
 
 ## Error handling
 

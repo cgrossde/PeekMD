@@ -1,12 +1,43 @@
 import { test, expect } from '../edit-mode-fixtures';
 
-test('renders a preview cursor before entering source mode', async ({ tauriPage }) => {
+test('transfers a clicked preview cursor into the focused editor', async ({ tauriPage }) => {
   const leaf = tauriPage.locator('.markdown-body span[data-sourcepos="3:1-3:12"]');
   await leaf.click({ position: { x: 12, y: 8 } });
   await expect(tauriPage.locator('.peekmd-preview-caret')).toBeVisible();
   await tauriPage.keyboard.press('Meta+Enter');
-  await expect(tauriPage.locator('.cm-editor')).toBeVisible();
-  await expect(tauriPage.locator('.cm-cursor')).toBeVisible();
+  const editor = tauriPage.locator('.cm-content');
+  await expect(editor).toBeVisible();
+  expect(await editor.evaluate((element: Element) => element === document.activeElement)).toBe(true);
+});
+
+test('preserves the exact source cursor through repeated preview round trips', async ({ tauriPage }) => {
+  await tauriPage.keyboard.press('Meta+Enter');
+  const editor = tauriPage.locator('.cm-content');
+  const referenceLine = tauriPage.locator('.cm-line').nth(6);
+  await referenceLine.click();
+  await editor.press('End');
+
+  await tauriPage.keyboard.press('Meta+Enter');
+  const previewCaret = tauriPage.locator('.peekmd-preview-caret');
+  await expect(tauriPage.locator('.markdown-body')).toBeVisible();
+  await expect(previewCaret).toBeVisible();
+  expect(await previewCaret.evaluate((element: Element) => element.getBoundingClientRect().height)).toBeGreaterThan(0);
+
+  await tauriPage.keyboard.press('Meta+Enter');
+  await tauriPage.keyboard.type(' CURSOR');
+  await expect(referenceLine).toContainText('[Reference][] CURSOR');
+
+  await tauriPage.keyboard.press('Meta+Enter');
+  await expect(previewCaret).toBeVisible();
+  expect(await previewCaret.evaluate((element: Element) => {
+    const selection = element.ownerDocument.getSelection();
+    const anchor = selection?.anchorNode;
+    const parent = anchor instanceof Element ? anchor : anchor?.parentElement;
+    return parent?.closest('[data-sourcepos]')?.getAttribute('data-sourcepos') ?? null;
+  })).toBe('7:14-7:20');
+  await tauriPage.keyboard.press('Meta+Enter');
+  await tauriPage.keyboard.type(' AGAIN');
+  await expect(referenceLine).toContainText('[Reference][] CURSOR AGAIN');
 });
 
 test('enters source mode with visible Markdown markers and styled headings', async ({ tauriPage }) => {

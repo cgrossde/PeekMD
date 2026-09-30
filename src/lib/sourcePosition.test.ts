@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { capturePreviewAnchor, parseSourcePosition, restorePreviewAnchor } from './sourcePosition';
+import { Text } from '@codemirror/state';
+import { capturePreviewAnchor, parseSourcePosition, parseSourceRange, previewCursorToOffset, restorePreviewAnchor } from './sourcePosition';
 
 describe('source position anchors', () => {
   it('rejects malformed and inverted source ranges', () => {
@@ -62,5 +62,23 @@ describe('source position anchors', () => {
     vi.spyOn(paragraph, 'getBoundingClientRect').mockReturnValue({ top: 60, bottom: 140, height: 80 } as DOMRect);
     restorePreviewAnchor(container, { line: 12, offsetPx: 0 });
     expect(container.scrollTop).toBe(0);
+  });
+});
+
+describe('preview cursor source mapping', () => {
+  it('maps visible plain text and Markdown punctuation to CodeMirror offsets', () => {
+    const source = Text.of(['# Heading', '', '**bold** and [link](next.md)']);
+    expect(previewCursorToOffset(source, { sourceRange: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 9 }, renderedText: 'Heading', renderedOffset: 3 })).toBe(5);
+    expect(previewCursorToOffset(source, { sourceRange: { startLine: 3, startColumn: 1, endLine: 3, endColumn: 8 }, renderedText: 'bold', renderedOffset: 2 })).toBe(15);
+  });
+
+  it('preserves an exact editor offset hidden by Markdown punctuation', () => {
+    const source = Text.of(['[Reference][]']);
+    expect(previewCursorToOffset(source, {
+      sourceRange: { startLine: 1, startColumn: 1, endLine: 1, endColumn: 13 },
+      renderedText: 'Reference',
+      renderedOffset: 9,
+      sourceOffset: source.length,
+    })).toBe(source.length);
   });
 });

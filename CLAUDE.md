@@ -20,7 +20,9 @@ cargo check              # (from src-tauri/) Rust typecheck
 bash scripts/release-unsigned.sh   # build unsigned DMG
 bash scripts/install-skill.sh      # install agent skill into ~/.claude/skills/
 
-bun run test             # frontend unit tests (vitest)
+bun run test             # frontend unit tests + browser E2E
+bun run test:unit        # frontend unit tests only (Vitest)
+bun run test:edit-mode   # focused browser E2E for Markdown editing
 cargo test               # (from src-tauri/) Rust unit tests
 ```
 

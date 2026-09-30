@@ -24,7 +24,7 @@ These handlers live in `src/lib/keybindings.ts`, installed once by `installGloba
 | --- | --- | --- |
 | `⌘Enter` | Enter or leave Markdown edit mode | Uses CodeMirror source editing. Leaving waits for a clean autosave; conflicts and save errors keep the editor open. |
 
-Markdown punctuation remains visible. Links require `⌘`-click; ordinary preview text clicks place a visual cursor, while native browser drag-selection remains local to the preview. PeekMD remembers each document's editor cursor for the current app session. Switching between preview and edit mode maps the top visible rendered block to its source line, so scrolling either surface returns to the same document region on the other surface.
+Markdown punctuation remains visible. Links require `⌘`-click; ordinary preview text clicks place a visual cursor, and `⌘Enter` transfers that cursor to the corresponding source position. Native browser drag-selection remains local to the preview. PeekMD remembers each document's editor cursor for the current app session. Switching between preview and edit mode maps the top visible rendered block to its source line, so scrolling either surface returns to the same document region on the other surface.
 
 ## Document navigation
 

@@ -1,3 +1,4 @@
+import type { Text } from '@codemirror/state';
 export type SourceAnchor = { line: number; offsetPx: number };
 
 export function parseSourcePosition(value: string): { startLine: number; endLine: number } | null {
@@ -7,6 +8,55 @@ export function parseSourcePosition(value: string): { startLine: number; endLine
   const endLine = Number(match[2]);
   if (!Number.isSafeInteger(startLine) || !Number.isSafeInteger(endLine) || startLine < 1 || endLine < startLine) return null;
   return { startLine, endLine };
+}
+export type SourcePositionRange = { startLine: number; startColumn: number; endLine: number; endColumn: number };
+export type PreviewCursor = { sourceRange: SourcePositionRange; renderedText: string; renderedOffset: number; sourceOffset?: number };
+
+export function parseSourceRange(value: string): SourcePositionRange | null {
+  const match = /^(\d+):(\d+)-(\d+):(\d+)$/.exec(value.trim());
+  if (!match) return null;
+  const [startLine, startColumn, endLine, endColumn] = match.slice(1).map(Number);
+  if (![startLine, startColumn, endLine, endColumn].every(Number.isSafeInteger) || startLine < 1 || startColumn < 1 || endLine < startLine || (endLine === startLine && endColumn < startColumn)) return null;
+  return { startLine, startColumn, endLine, endColumn };
+}
+
+function utf8Width(character: string): number {
+  const codePoint = character.codePointAt(0) ?? 0;
+  return codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4;
+}
+
+function utf16OffsetAtByteColumn(line: string, column: number, inclusiveEnd: boolean): number {
+  const target = Math.max(column - 1, 0);
+  let bytes = 0;
+  let offset = 0;
+  for (const character of line) {
+    const width = utf8Width(character);
+    if (inclusiveEnd ? bytes >= target || bytes + width > target : bytes + width > target) return inclusiveEnd ? offset + character.length : offset;
+    bytes += width;
+    offset += character.length;
+  }
+  return line.length;
+}
+
+function sourcePositionToOffset(text: Text, lineNumber: number, column: number, inclusiveEnd: boolean): number {
+  if (lineNumber > text.lines) return text.length;
+  const line = text.line(Math.max(lineNumber, 1));
+  return Math.min(line.from + utf16OffsetAtByteColumn(line.text, column, inclusiveEnd), line.to);
+}
+
+export function sourceRangeToOffsets(text: Text, range: SourcePositionRange): { from: number; to: number } {
+  const from = sourcePositionToOffset(text, range.startLine, range.startColumn, false);
+  const to = sourcePositionToOffset(text, range.endLine, range.endColumn, true);
+  return to >= from ? { from, to } : { from: to, to: from };
+}
+
+export function previewCursorToOffset(text: Text, cursor: PreviewCursor): number {
+  if (cursor.sourceOffset !== undefined) return Math.min(Math.max(cursor.sourceOffset, 0), text.length);
+  const range = sourceRangeToOffsets(text, cursor.sourceRange);
+  const sourceText = text.sliceString(range.from, range.to);
+  const renderedStart = sourceText.indexOf(cursor.renderedText);
+  const local = renderedStart >= 0 ? renderedStart + Math.min(Math.max(cursor.renderedOffset, 0), cursor.renderedText.length) : 0;
+  return Math.min(range.from + local, range.to);
 }
 
 function blocks(container: HTMLElement): Element[] {

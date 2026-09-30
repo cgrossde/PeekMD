@@ -100,10 +100,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
 
   useEffect(() => {
     if (!hostRef.current) return;
+    const reportCursor = (position: number) => {
+      onCursorChange(session.path, position);
+      if (import.meta.env.DEV && hostRef.current) hostRef.current.dataset.cursorOffset = String(position);
+    };
     const buildExtensions = (lineSeparator: string): Extension[] => {
       const updateListener = EditorView.updateListener.of(update => {
         if (update.docChanged) onDraftChange(update.state.doc);
-        if (update.selectionSet) onCursorChange(session.path, update.state.selection.main.head);
+        if (update.selectionSet) reportCursor(update.state.selection.main.head);
       });
       return [
         EditorState.lineSeparator.of(lineSeparator), markdown({ base: markdownLanguage }), lineNumbers({ formatNumber: line => String(line) }), history(), syntaxHighlighting(markdownHighlight, { fallback: true }), headingDecorations, EditorView.lineWrapping, updateListener,
@@ -129,7 +133,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     const cursor = Math.min(Math.max(initialCursor ?? fallbackCursor, 0), session.draft.length);
     const view = new EditorView({ state: EditorState.create({ doc: session.draft, selection: { anchor: cursor }, extensions: extensionsRef.current }), parent: hostRef.current });
     viewRef.current = view;
-    onCursorChange(session.path, cursor);
+    reportCursor(cursor);
     if (initialAnchor) reveal(initialAnchor);
     view.focus();
     return () => {

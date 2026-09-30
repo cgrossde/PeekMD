@@ -1,7 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import type { Text } from '@codemirror/state';
+import { parseSourceRange, sourceRangeToOffsets, type PreviewCursor, type SourcePositionRange } from '../lib/sourcePosition';
 
 type MarkdownPreviewProps = {
   html: string;
+};
+
+export type MarkdownPreviewHandle = {
+  captureCursor(): PreviewCursor | null;
+  restoreCursor(source: Text, offset: number): boolean;
 };
 
 const INTERACTIVE_SELECTOR = 'a,button,input,select,textarea,summary,[role="button"],[role="link"],[role="checkbox"],[contenteditable="true"],.peekmd-mermaid-controls,.peekmd-mermaid-viewport';
@@ -23,15 +30,63 @@ function rangeFromPoint(container: HTMLElement, x: number, y: number): Range | n
   return range;
 }
 
-export function MarkdownPreview({ html }: MarkdownPreviewProps) {
+function textNodes(element: Element): globalThis.Text[] {
+  const result: globalThis.Text[] = [];
+  const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
+  while ((node = walker.nextNode())) result.push(node as globalThis.Text);
+  return result;
+}
+
+function cursorFromRange(range: Range, article: HTMLElement): PreviewCursor | null {
+  if (range.startContainer.nodeType !== Node.TEXT_NODE) return null;
+  const sourceElement = range.startContainer.parentElement?.closest<HTMLElement>('[data-sourcepos]');
+  const sourceRange = parseSourceRange(sourceElement?.getAttribute('data-sourcepos') ?? '');
+  if (!sourceElement || !sourceRange) return null;
+  const walker = article.ownerDocument.createTreeWalker(sourceElement, NodeFilter.SHOW_TEXT);
+  let renderedOffset = 0;
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (node === range.startContainer) {
+      renderedOffset += range.startOffset;
+      break;
+    }
+    renderedOffset += node.textContent?.length ?? 0;
+  }
+  return { sourceRange, renderedText: sourceElement.textContent ?? '', renderedOffset };
+}
+
+function domPointForSourceOffset(article: HTMLElement, source: Text, offset: number): { node: globalThis.Text; offset: number } | null {
+  const candidates = Array.from(article.querySelectorAll<HTMLElement>('[data-sourcepos]'))
+    .map(element => ({ element, range: parseSourceRange(element.getAttribute('data-sourcepos') ?? '') }))
+    .filter((entry): entry is { element: HTMLElement; range: SourcePositionRange } => entry.range !== null)
+    .map(entry => ({ ...entry, offsets: sourceRangeToOffsets(source, entry.range) }))
+    .filter(entry => offset >= entry.offsets.from && offset <= entry.offsets.to)
+    .sort((a, b) => (a.offsets.to - a.offsets.from) - (b.offsets.to - b.offsets.from));
+  for (const candidate of candidates) {
+    const nodes = textNodes(candidate.element);
+    if (nodes.length === 0) continue;
+    const sourceText = source.sliceString(candidate.offsets.from, candidate.offsets.to);
+    const renderedText = candidate.element.textContent ?? '';
+    const renderedStart = sourceText.indexOf(renderedText);
+    const local = renderedStart >= 0 ? offset - candidate.offsets.from - renderedStart : 0;
+    const node = nodes[0];
+    return { node, offset: Math.min(Math.max(local, 0), node.data.length) };
+  }
+  return null;
+}
+
+export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreviewProps>(function MarkdownPreview({ html }, ref) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const articleRef = useRef<HTMLElement>(null);
   const caretRef = useRef<HTMLDivElement>(null);
   const caretRangeRef = useRef<Range | null>(null);
+  const cursorRef = useRef<PreviewCursor | null>(null);
   const frameRef = useRef<number | null>(null);
 
   const hideCaret = () => {
     caretRangeRef.current = null;
+    cursorRef.current = null;
     if (caretRef.current) caretRef.current.hidden = true;
   };
 
@@ -56,6 +111,32 @@ export function MarkdownPreview({ html }: MarkdownPreviewProps) {
     if (frameRef.current === null) frameRef.current = requestAnimationFrame(positionCaret);
   };
 
+  const applyRange = (range: Range, article: HTMLElement): boolean => {
+    const selection = window.getSelection();
+    if (!selection) return false;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    caretRangeRef.current = range;
+    cursorRef.current = cursorFromRange(range, article);
+    scheduleCaretPosition();
+    return true;
+  };
+
+  useImperativeHandle(ref, () => ({
+    captureCursor: () => cursorRef.current,
+    restoreCursor: (source, offset) => {
+      const article = articleRef.current;
+      const point = article ? domPointForSourceOffset(article, source, offset) : null;
+      if (!article || !point) return false;
+      const range = article.ownerDocument.createRange();
+      range.setStart(point.node, point.offset);
+      range.collapse(true);
+      if (!applyRange(range, article)) return false;
+      if (cursorRef.current) cursorRef.current = { ...cursorRef.current, sourceOffset: offset };
+      return true;
+    },
+  }), []);
+
   useEffect(() => {
     const article = articleRef.current;
     const surface = surfaceRef.current;
@@ -74,12 +155,7 @@ export function MarkdownPreview({ html }: MarkdownPreviewProps) {
         return;
       }
       range.collapse(true);
-      const selection = window.getSelection();
-      if (!selection) return;
-      selection.removeAllRanges();
-      selection.addRange(range);
-      caretRangeRef.current = range;
-      scheduleCaretPosition();
+      applyRange(range, article);
     };
 
     const onMouseUp = () => {
@@ -121,4 +197,4 @@ export function MarkdownPreview({ html }: MarkdownPreviewProps) {
       <div ref={caretRef} className="peekmd-preview-caret" aria-hidden="true" hidden />
     </div>
   );
-}
+});

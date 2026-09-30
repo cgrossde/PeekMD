@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, type MouseEvent as ReactMouseEvent } from 'react';
+import type { Text } from '@codemirror/state';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
@@ -6,7 +7,7 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { EmptyState } from './components/EmptyState';
 import { MarkdownEditor, type MarkdownEditorHandle } from './components/MarkdownEditor';
-import { MarkdownPreview } from './components/MarkdownPreview';
+import { MarkdownPreview, type MarkdownPreviewHandle } from './components/MarkdownPreview';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { TOC } from './components/TOC';
@@ -25,7 +26,7 @@ import { applyTheme, resolveTheme, watchSystemTheme } from './lib/theme';
 import { resolveMarkdownImages } from './lib/mdImages';
 import { hydrateMermaid } from './lib/mermaid';
 import { useSidebarResize } from './lib/sidebarResize';
-import { capturePreviewAnchor, restorePreviewAnchor, type SourceAnchor } from './lib/sourcePosition';
+import { capturePreviewAnchor, previewCursorToOffset, restorePreviewAnchor, type PreviewCursor, type SourceAnchor } from './lib/sourcePosition';
 let didHydrate = false;
 const detachedPath = new URLSearchParams(window.location.search).get('detached');
 const isDetached = detachedPath !== null;
@@ -37,8 +38,11 @@ export default function App() {
   const docViewRef = useRef<HTMLDivElement>(null);
   const mainAreaRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<MarkdownEditorHandle>(null);
+  const previewRef = useRef<MarkdownPreviewHandle>(null);
   const sourceAnchors = useRef<Map<string, SourceAnchor>>(new Map());
   const editorCursors = useRef<Map<string, number>>(new Map());
+  const previewCursors = useRef<Map<string, { cursor: PreviewCursor; revision: string }>>(new Map());
+  const pendingPreviewCursors = useRef<Map<string, { source: Text; offset: number }>>(new Map());
   const scrollPositions = useRef<Map<string, number>>(new Map());
   const prevDocIdRef = useRef<string | null>(null);
   const prevEditingRef = useRef(false);
@@ -59,14 +63,21 @@ export default function App() {
       const anchor = editorRef.current?.captureAnchor();
       if (anchor) sourceAnchors.current.set(path, anchor);
       const cursor = editorRef.current?.captureCursor();
-      if (cursor !== undefined) editorCursors.current.set(path, cursor);
-      return state.finishEditing();
+      if (cursor !== undefined) {
+        editorCursors.current.set(path, cursor);
+        pendingPreviewCursors.current.set(path, { source: state.editSession.draft, offset: cursor });
+      }
+      const finished = await state.finishEditing();
+      if (!finished) pendingPreviewCursors.current.delete(path);
+      return finished;
     }
     const container = docViewRef.current;
     if (container) sourceAnchors.current.set(path, capturePreviewAnchor(container));
+    const previewCursor = previewRef.current?.captureCursor();
+    const active = state.openDocs.find(doc => doc.path === path);
+    if (previewCursor && active) previewCursors.current.set(path, { cursor: previewCursor, revision: active.revision.sha256 });
     return state.beginEditing();
   }, []);
-
   const rememberEditorCursor = useCallback((path: string, position: number) => {
     editorCursors.current.set(path, position);
   }, []);
@@ -158,6 +169,24 @@ export default function App() {
     prevDocIdRef.current = incoming;
     prevEditingRef.current = isEditing;
   }, [activeDoc?.path, isEditing]);
+  useEffect(() => {
+    if (!activeDoc || isEditing) return;
+    const path = activeDoc.path;
+    const pending = pendingPreviewCursors.current.get(path);
+    if (!pending) return;
+    let frame = 0;
+    let attempts = 0;
+    const restore = () => {
+      if (previewRef.current?.restoreCursor(pending.source, pending.offset)) {
+        pendingPreviewCursors.current.delete(path);
+        return;
+      }
+      attempts += 1;
+      if (attempts < 3) frame = requestAnimationFrame(restore);
+    };
+    frame = requestAnimationFrame(restore);
+    return () => cancelAnimationFrame(frame);
+  }, [activeDoc?.path, activeDoc?.html, activeDoc?.revision.sha256, isEditing]);
 
 
 
@@ -247,7 +276,7 @@ export default function App() {
         <div className="peekmd-doc-area">
           <div className="peekmd-doc-scroll" ref={docViewRef} onMouseOver={handleLinkMouseOver} onMouseOut={handleLinkMouseOut}>
             {!isEditing && <FindBar />}
-            {activeDoc ? (isEditing && editSession ? <MarkdownEditor ref={editorRef} session={editSession} scrollContainer={docViewRef.current} initialAnchor={sourceAnchors.current.get(activeDoc.path)} initialCursor={editorCursors.current.get(activeDoc.path)} onDraftChange={useStore.getState().updateEditDraft} onCursorChange={rememberEditorCursor} onToggle={toggleEditMode} onNavigateHref={navigateEditorHref} onReload={useStore.getState().reloadEditFromDisk} onOverwrite={() => { void useStore.getState().overwriteEdit(); }} onRetry={() => { void useStore.getState().retryEditSave(); }} /> : <MarkdownPreview html={activeDoc.html} />) : <EmptyState onPickFile={pickFile} isDragOver={isDragOver} />}
+            {activeDoc ? (isEditing && editSession ? <MarkdownEditor ref={editorRef} session={editSession} scrollContainer={docViewRef.current} initialAnchor={sourceAnchors.current.get(activeDoc.path)} initialCursor={previewCursors.current.get(activeDoc.path)?.revision === activeDoc.revision.sha256 ? previewCursorToOffset(editSession.draft, previewCursors.current.get(activeDoc.path)!.cursor) : editorCursors.current.get(activeDoc.path)} onDraftChange={useStore.getState().updateEditDraft} onCursorChange={rememberEditorCursor} onToggle={toggleEditMode} onNavigateHref={navigateEditorHref} onReload={useStore.getState().reloadEditFromDisk} onOverwrite={() => { void useStore.getState().overwriteEdit(); }} onRetry={() => { void useStore.getState().retryEditSave(); }} /> : <MarkdownPreview ref={previewRef} html={activeDoc.html} />) : <EmptyState onPickFile={pickFile} isDragOver={isDragOver} />}
           </div>
           <StatusBar href={isEditing ? null : hoveredLink} editStatus={isEditing ? editSession?.status : undefined} />
         </div>

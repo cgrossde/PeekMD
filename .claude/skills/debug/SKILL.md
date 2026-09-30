@@ -105,12 +105,21 @@ node .../peekmd-ctl.mjs style "code" font-family
 ```bash
 node .../peekmd-ctl.mjs click ".peekmd-topbar"
 
-# Trigger ⌘⇧D theme toggle
-node .../peekmd-ctl.mjs eval "window.dispatchEvent(new KeyboardEvent('keydown', { key: 'D', metaKey: true, shiftKey: true, bubbles: true }))"
-
-# Trigger ⌘R re-render
-node .../peekmd-ctl.mjs eval "window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', metaKey: true, bubbles: true }))"
+# Send a global shortcut through `body`; pass a selector for editor-local keys.
+node .../peekmd-ctl.mjs press Meta+Enter
+node .../peekmd-ctl.mjs press Meta+f .cm-content
 ```
+
+### Inspect cursor transfer
+```bash
+# Current mode, active element, native selection, source position, and caret rectangles
+node .../peekmd-ctl.mjs cursor-state
+
+# Switch modes twice and print cursor state before, between, and after
+node .../peekmd-ctl.mjs cursor-roundtrip
+```
+
+`cursor-roundtrip` waits for both React transitions. Use it with `screenshot-native` when the state is correct but the caret is visually misplaced.
 
 ---
 
@@ -123,6 +132,13 @@ node .../peekmd-ctl.mjs path           # which file is loaded
 node .../peekmd-ctl.mjs html           # raw rendered HTML
 node .../peekmd-ctl.mjs screenshot-native /tmp/snap.png
 # Then in browser tool: await tab.goto('file:///tmp/snap.png'); await tab.screenshot();
+```
+
+### "Did the cursor survive an edit-mode round trip?"
+```bash
+node .../peekmd-ctl.mjs cursor-state
+node .../peekmd-ctl.mjs cursor-roundtrip
+node .../peekmd-ctl.mjs screenshot-native /tmp/peekmd-cursor.png
 ```
 
 ### "Is dark mode working?"
@@ -228,7 +244,8 @@ All responses: `{"ok":true,"data":...}` or `{"ok":false,"error":"..."}`.
 ## Notes
 
 - Socket only present in debug builds. Release builds never expose it.
-- After dispatching keyboard events, allow ~300 ms for React to re-render before screenshotting.
+- `press` parses modifiers such as `Meta+Enter`; prefer it over hand-written `KeyboardEvent` expressions.
+- Cursor transitions are asynchronous. `cursor-roundtrip` includes the required waits; manual command sequences should allow about 300 ms after switching.
 - If ping succeeds but `eval` times out: the `"playwright:default"` capability may be missing from
   `src-tauri/capabilities/default.json`. It must be present for `pw_result` IPC to be allowed.
 - If the socket file exists but ping hangs: the window crashed — restart dev server.

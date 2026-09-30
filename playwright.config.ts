@@ -5,7 +5,7 @@ export default defineConfig({
   projects: [
     {
       name: 'browser',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], screenshot: 'only-on-failure', trace: 'retain-on-failure' },
     },
     {
       name: 'tauri',

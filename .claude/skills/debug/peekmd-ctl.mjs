@@ -8,6 +8,9 @@
  *   node peekmd-ctl.mjs screenshot-native [/abs/path/out.png]
  *   node peekmd-ctl.mjs click <css-selector>
  *   node peekmd-ctl.mjs fill <css-selector> <text>
+ *   node peekmd-ctl.mjs press <key> [css-selector]
+ *   node peekmd-ctl.mjs cursor-state
+ *   node peekmd-ctl.mjs cursor-roundtrip
  *   node peekmd-ctl.mjs eval <js-expression>
  *   node peekmd-ctl.mjs content
  *   node peekmd-ctl.mjs dom <css-selector>
@@ -102,6 +105,27 @@ async function fill(selector, text) {
   if (!r.ok) throw new Error(r.error ?? 'fill failed');
 }
 
+async function press(key, selector) {
+  const parts = key.split('+');
+  const mainKey = parts.pop();
+  const modifiers = new Set(parts.map(part => part === 'ControlOrMeta' ? 'Meta' : part));
+  const target = selector
+    ? `document.querySelector(${JSON.stringify(selector)})`
+    : `document.body`;
+  await evaluate(`(function () {
+    const element = ${target};
+    if (!element) throw new Error('Key target not found');
+    element.focus();
+    const modifierKeys = ${JSON.stringify([...modifiers])};
+    for (const modifier of modifierKeys) element.dispatchEvent(new KeyboardEvent('keydown', { key: modifier, bubbles: true }));
+    const options = { key: ${JSON.stringify(mainKey)}, bubbles: true, ctrlKey: ${modifiers.has('Control')}, shiftKey: ${modifiers.has('Shift')}, altKey: ${modifiers.has('Alt')}, metaKey: ${modifiers.has('Meta')} };
+    element.dispatchEvent(new KeyboardEvent('keydown', options));
+    element.dispatchEvent(new KeyboardEvent('keypress', options));
+    element.dispatchEvent(new KeyboardEvent('keyup', options));
+    for (const modifier of modifierKeys) element.dispatchEvent(new KeyboardEvent('keyup', { key: modifier, bubbles: true }));
+  })()`);
+}
+
 async function evaluate(script) {
   const r = await send({ type: 'eval', script });
   if (!r.ok) throw new Error(r.error ?? 'eval failed');
@@ -140,6 +164,56 @@ async function renderedHtml() {
   return evaluate(`document.querySelector('.markdown-body')?.innerHTML ?? ''`);
 }
 
+async function cursorState() {
+  return evaluate(`JSON.stringify((function () {
+    const selection = window.getSelection();
+    const anchorNode = selection?.anchorNode ?? null;
+    const anchorElement = anchorNode?.nodeType === Node.ELEMENT_NODE ? anchorNode : anchorNode?.parentElement;
+    const sourceElement = anchorElement?.closest?.('[data-sourcepos]') ?? null;
+    const caret = document.querySelector('.peekmd-preview-caret');
+    const editorHost = document.querySelector('.peekmd-editor');
+    const editorCursor = document.querySelector('.cm-cursor');
+    const active = document.activeElement;
+    const rect = element => {
+      if (!element) return null;
+      const value = element.getBoundingClientRect();
+      return { x: value.x, y: value.y, width: value.width, height: value.height };
+    };
+    return {
+      mode: document.querySelector('.cm-editor') ? 'editor' : 'preview',
+      activeElement: active ? { tag: active.tagName.toLowerCase(), className: active.className || null, role: active.getAttribute('role') } : null,
+      selection: selection ? { collapsed: selection.isCollapsed, anchorOffset: selection.anchorOffset, focusOffset: selection.focusOffset, sourcePosition: sourceElement?.getAttribute('data-sourcepos') ?? null } : null,
+      previewCaret: caret ? { hidden: caret.hidden, rect: rect(caret), left: caret.style.left, top: caret.style.top, height: caret.style.height } : null,
+      editorCursor: editorHost ? { offset: Number(editorHost.dataset.cursorOffset), rect: rect(editorCursor), lineText: anchorElement?.closest?.('.cm-line')?.textContent ?? null } : null,
+    };
+  })())`);
+}
+
+async function debugToggleEditMode() {
+  await press('Meta+Enter', 'body');
+}
+
+async function waitForTransition(mode, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const state = JSON.parse(await cursorState());
+    const previewReady = mode !== 'preview' || state.previewCaret?.hidden === false;
+    if (state.mode === mode && previewReady) return state;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for ${mode} cursor state`);
+}
+
+async function cursorRoundtrip() {
+  const before = JSON.parse(await cursorState());
+  const switchedMode = before.mode === 'preview' ? 'editor' : 'preview';
+  await debugToggleEditMode();
+  const switched = await waitForTransition(switchedMode);
+  await debugToggleEditMode();
+  const returned = await waitForTransition(before.mode);
+  return JSON.stringify({ before, switched, returned }, null, 2);
+}
+
 // ── CLI ────────────────────────────────────────────────────────────────────
 
 const [,, cmd, ...args] = process.argv;
@@ -169,6 +243,12 @@ const [,, cmd, ...args] = process.argv;
     case 'fill': {
       if (args.length < 2) throw new Error('Usage: fill <selector> <text>');
       await fill(args[0], args.slice(1).join(' '));
+      console.log('ok');
+      break;
+    }
+    case 'press': {
+      if (!args[0]) throw new Error('Usage: press <key> [css-selector]');
+      await press(args[0], args[1]);
       console.log('ok');
       break;
     }
@@ -204,10 +284,18 @@ const [,, cmd, ...args] = process.argv;
       console.log(await renderedHtml());
       break;
     }
+    case 'cursor-state': {
+      console.log(await cursorState());
+      break;
+    }
+    case 'cursor-roundtrip': {
+      console.log(await cursorRoundtrip());
+      break;
+    }
     default:
       console.error(`Unknown command: ${cmd ?? '(none)'}`);
-      console.error('Commands: ping, screenshot, screenshot-native, click, fill, eval,');
-      console.error('          content, dom, style, theme, path, html');
+      console.error('Commands: ping, screenshot, screenshot-native, click, fill, press, eval,');
+      console.error('          content, dom, style, theme, path, html, cursor-state, cursor-roundtrip');
       process.exit(1);
   }
 })().catch(e => {
