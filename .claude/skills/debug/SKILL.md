@@ -1,251 +1,175 @@
 ---
 name: debug
 description: >
-  Debug the live PeekMD app — take screenshots, inspect rendered markdown HTML,
-  query DOM state, evaluate JS, check theme, and interact with the webview.
-  Use when verifying UI changes, checking rendering output, inspecting app state,
-  or diagnosing visual bugs. Requires the app to be running via `bun run tauri dev`.
+  Debug the live PeekMD development app through its tauri-plugin-playwright socket.
+  Use for deterministic state, cursor, fixture, scenario, screenshot, HTML, and
+  diagnostic-bundle workflows.
 ---
 
-# PeekMD Debug
+# PeekMD Debug Feedback Loop
 
-Direct control of the running PeekMD dev app via the `tauri-plugin-playwright` Unix socket.
-
-## How it works
-
-The Rust plugin (`tauri-plugin-playwright`) is compiled into debug builds only (gated by
-`#[cfg(debug_assertions)]` in `src-tauri/src/lib.rs`). It opens a Unix socket at
-`/tmp/tauri-playwright.sock` and accepts newline-delimited JSON commands.
-
-For commands that need JS results (`eval`, `dom`, `style`, etc.): the plugin calls
-`webview.eval()` with a wrapper script that executes the JS and calls back to Rust via
-`plugin:playwright|pw_result` IPC. This requires `"playwright:default"` in the capabilities
-file — already configured in `src-tauri/capabilities/default.json`.
-
-## Control script
-
-```
-node ~/dev/PeekMD/.claude/skills/debug/peekmd-ctl.mjs <command> [args]
-```
-
-## Prerequisite: confirm the app is live
+The control CLI talks to the development-only Unix socket at
+`/tmp/tauri-playwright.sock`. The application debug bridge is available only in
+Vite development builds. Start the app first:
 
 ```bash
-node ~/dev/PeekMD/.claude/skills/debug/peekmd-ctl.mjs ping
-# Expected: pong
+bun run tauri dev -- -- /tmp/sample.md
+node .claude/skills/debug/peekmd-ctl.mjs ping
 ```
 
-If the socket is missing, start the app:
-```bash
-cd ~/dev/PeekMD && bun run tauri dev -- -- /tmp/sample.md
-```
-First run compiles Rust (~45 s). Subsequent runs: ~5 s.
+A production build has neither the socket nor `window.__PEEKMD_DEBUG__`.
 
----
+## Global flags
 
-## Commands
+Flags may appear anywhere in a command:
 
-### Screenshot — native macOS (the one that works)
-```bash
-node .../peekmd-ctl.mjs screenshot-native
-node .../peekmd-ctl.mjs screenshot-native /tmp/peekmd-native.png
-```
-Captures the real macOS window at retina resolution, including title bar and shadow.
-Works even when the window is behind other windows. **Use this for visual verification.**
+- `--json` emits a machine-readable envelope.
+- `--verbose` writes socket requests and responses to stderr; stdout is unchanged.
+- `--timeout MS` changes the default 2,000 ms timeout for `wait` commands.
 
-> **Note:** `screenshot` (DOM canvas) fails with "canvas tainted: The operation is insecure"
-> due to WKWebView's canvas security policy for `file://` resources. Use `screenshot-native`.
-
-### Display a screenshot
-After capturing, show it with the browser tool:
-```js
-await tab.goto('file:///tmp/peekmd-native.png');
-await tab.screenshot();
-```
-
-### PeekMD-specific queries
-```bash
-# Current resolved theme: "light" or "dark"
-node .../peekmd-ctl.mjs theme
-
-# Currently loaded file path (reads .peekmd-topbar text)
-node .../peekmd-ctl.mjs path
-
-# Raw rendered HTML inside .markdown-body
-node .../peekmd-ctl.mjs html
-```
-
-### Evaluate JavaScript
-```bash
-node .../peekmd-ctl.mjs eval "document.title"
-node .../peekmd-ctl.mjs eval "document.querySelector('h1')?.textContent"
-node .../peekmd-ctl.mjs eval "document.querySelectorAll('.markdown-body table').length"
-node .../peekmd-ctl.mjs eval "sessionStorage.getItem('peekmd:theme')"
-node .../peekmd-ctl.mjs eval "getComputedStyle(document.body).backgroundColor"
-node .../peekmd-ctl.mjs eval "getComputedStyle(document.documentElement).getPropertyValue('--bgColor-default').trim()"
-```
-
-### Inspect DOM
-```bash
-# Full page HTML
-node .../peekmd-ctl.mjs content
-
-# innerHTML of a selector
-node .../peekmd-ctl.mjs dom ".markdown-body"
-node .../peekmd-ctl.mjs dom "h1"
-node .../peekmd-ctl.mjs dom ".peekmd-topbar"
-
-# Computed CSS value
-node .../peekmd-ctl.mjs style "body" background-color
-node .../peekmd-ctl.mjs style ".markdown-body" max-width
-node .../peekmd-ctl.mjs style "code" font-family
-```
-
-### Click / interact
-```bash
-node .../peekmd-ctl.mjs click ".peekmd-topbar"
-
-# Send a global shortcut through `body`; pass a selector for editor-local keys.
-node .../peekmd-ctl.mjs press Meta+Enter
-node .../peekmd-ctl.mjs press Meta+f .cm-content
-```
-
-### Inspect cursor transfer
-```bash
-# Current mode, active element, native selection, source position, and caret rectangles
-node .../peekmd-ctl.mjs cursor-state
-
-# Switch modes twice and print cursor state before, between, and after
-node .../peekmd-ctl.mjs cursor-roundtrip
-```
-
-`cursor-roundtrip` waits for both React transitions. Use it with `screenshot-native` when the state is correct but the caret is visually misplaced.
-
----
-
-## Typical debug workflows
-
-### "Does the rendered HTML look right?"
-```bash
-node .../peekmd-ctl.mjs ping
-node .../peekmd-ctl.mjs path           # which file is loaded
-node .../peekmd-ctl.mjs html           # raw rendered HTML
-node .../peekmd-ctl.mjs screenshot-native /tmp/snap.png
-# Then in browser tool: await tab.goto('file:///tmp/snap.png'); await tab.screenshot();
-```
-
-### "Did the cursor survive an edit-mode round trip?"
-```bash
-node .../peekmd-ctl.mjs cursor-state
-node .../peekmd-ctl.mjs cursor-roundtrip
-node .../peekmd-ctl.mjs screenshot-native /tmp/peekmd-cursor.png
-```
-
-### "Is dark mode working?"
-```bash
-node .../peekmd-ctl.mjs theme                                                               # current resolved theme
-node .../peekmd-ctl.mjs style "body" background-color                                      # computed bg
-node .../peekmd-ctl.mjs eval "getComputedStyle(document.documentElement).getPropertyValue('--bgColor-default').trim()"
-node .../peekmd-ctl.mjs screenshot-native /tmp/light.png
-node .../peekmd-ctl.mjs eval "window.dispatchEvent(new KeyboardEvent('keydown', { key: 'D', metaKey: true, shiftKey: true, bubbles: true }))"
-node .../peekmd-ctl.mjs screenshot-native /tmp/dark.png
-```
-
-### "Tables / code blocks / alerts rendering?"
-```bash
-node .../peekmd-ctl.mjs eval "document.querySelectorAll('.markdown-body table').length"
-node .../peekmd-ctl.mjs eval "document.querySelectorAll('.markdown-body pre code').length"
-node .../peekmd-ctl.mjs eval "document.querySelectorAll('.markdown-alert').length"
-node .../peekmd-ctl.mjs dom ".markdown-alert"
-```
-
-### "Check a CSS variable"
-```bash
-node .../peekmd-ctl.mjs eval "getComputedStyle(document.documentElement).getPropertyValue('--bgColor-default').trim()"
-node .../peekmd-ctl.mjs eval "getComputedStyle(document.documentElement).getPropertyValue('--fgColor-default').trim()"
-node .../peekmd-ctl.mjs eval "getComputedStyle(document.documentElement).getPropertyValue('--borderColor-default').trim()"
-```
-
----
-
-## Safari Web Inspector (built-in)
-
-In any dev build, `⌘⌥I` opens Safari's Web Inspector attached to the PeekMD WKWebView.
-Full Elements / Network / Console / Sources / Timeline — same as browser devtools. No setup needed.
-
-Tauri docs: https://v2.tauri.app/develop/debug/
-
----
-
-## CrabNebula DevTools (optional — Tauri command/event inspector)
-
-CrabNebula DevTools (`tauri-plugin-devtools`) instruments the Tauri layer: IPC commands,
-events, spans, payloads. Complements Safari Web Inspector (which covers JS/DOM).
-
-To add it:
-```toml
-# src-tauri/Cargo.toml [dependencies]
-tauri-plugin-devtools = "2"
-```
-```rust
-// src-tauri/src/lib.rs, inside run(), before Builder::default()
-#[cfg(debug_assertions)]
-let devtools = tauri_plugin_devtools::init();
-
-// then in the builder chain:
-#[cfg(debug_assertions)]
-{ builder = builder.plugin(devtools); }
-```
-A link to the DevTools web UI is printed to the terminal on startup.
-Docs: https://v2.tauri.app/develop/debug/crabnebula-devtools/
-
-Not installed in Phase 1 — add if you need Tauri command tracing.
-
----
-
-## Log inspection
-
-```bash
-# Tail live log
-tail -f ~/Library/Logs/PeekMD\ Dev/peekmd.$(date +%Y-%m-%d).log
-
-# Check last render event (path, bytes, duration)
-grep "rendered" ~/Library/Logs/PeekMD\ Dev/peekmd.$(date +%Y-%m-%d).log | tail -5
-```
-
----
-
-## Socket protocol reference
-
-The socket at `/tmp/tauri-playwright.sock` accepts newline-delimited JSON, one response per command.
+Success JSON:
 
 ```json
-{"type":"ping"}
-{"type":"native_screenshot","path":"/abs/path/out.png"}
-{"type":"eval","script":"document.title"}
-{"type":"click","selector":".peekmd-topbar","timeout_ms":5000}
-{"type":"fill","selector":"input","text":"hello","timeout_ms":5000}
-{"type":"is_visible","selector":".markdown-body"}
-{"type":"text_content","selector":"h1","timeout_ms":5000}
-{"type":"inner_html","selector":".markdown-body","timeout_ms":5000}
-{"type":"get_computed_style","selector":"body","property":"background-color","timeout_ms":5000}
-{"type":"count","selector":".markdown-body table"}
-{"type":"content"}
-{"type":"title"}
-{"type":"url"}
+{ "ok": true, "command": "cursor-state", "data": {} }
 ```
 
-All responses: `{"ok":true,"data":...}` or `{"ok":false,"error":"..."}`.
+Failure JSON has a non-zero exit status and includes the last bridge snapshot when
+available:
 
-> `screenshot` (DOM canvas) is broken in WKWebView for `file://` resources — use `native_screenshot`.
+```json
+{ "ok": false, "command": "wait mode editor", "error": "Timed out ...", "state": {} }
+```
 
----
+## Command grammar
 
-## Notes
+Existing socket and DOM commands:
 
-- Socket only present in debug builds. Release builds never expose it.
-- `press` parses modifiers such as `Meta+Enter`; prefer it over hand-written `KeyboardEvent` expressions.
-- Cursor transitions are asynchronous. `cursor-roundtrip` includes the required waits; manual command sequences should allow about 300 ms after switching.
-- If ping succeeds but `eval` times out: the `"playwright:default"` capability may be missing from
-  `src-tauri/capabilities/default.json`. It must be present for `pw_result` IPC to be allowed.
-- If the socket file exists but ping hangs: the window crashed — restart dev server.
+```text
+ping
+screenshot [PATH]
+screenshot-native [PATH]
+click CSS_SELECTOR
+fill CSS_SELECTOR TEXT
+press KEY [CSS_SELECTOR]
+eval JAVASCRIPT
+content
+dom CSS_SELECTOR
+style CSS_SELECTOR CSS_PROPERTY
+theme
+path
+html
+cursor-state
+```
+
+`cursor-state` requires the application debug bridge. It combines the semantic
+`DebugSnapshot` with active-element data, native selection details, preview-caret
+geometry, and editor-caret geometry. It fails with
+`PeekMD debug bridge unavailable; run a development build` instead of returning
+partial semantic state.
+
+Cursor controls use the bridge, not synthetic CodeMirror key events:
+
+```text
+set-editor-cursor --offset N
+set-editor-cursor --line N --column N
+set-preview-cursor --selector CSS_SELECTOR --offset N
+assert-cursor --editor-offset N
+assert-cursor --line N --column N
+assert-cursor --preview-selector CSS_SELECTOR --rendered-offset N
+```
+
+Exactly one editor addressing form and exactly one assertion form are required.
+Editor line and column are one-based. Preview offsets are non-negative UTF-16
+offsets across descendant text nodes of the selected element. Invalid selectors,
+non-integers, and out-of-range positions fail.
+
+Deterministic waits poll every 25 ms:
+
+```text
+wait mode empty|preview|editor [--timeout MS]
+wait edit-status clean|dirty|saving|conflict|error [--timeout MS]
+wait selector CSS_SELECTOR [--timeout MS]
+wait cursor-visible [--timeout MS]
+```
+
+A timeout reports the final debug snapshot.
+
+## Owned fixture workflows
+
+```text
+fixture open cursor
+fixture replace --text TEXT
+fixture replace --from FILE
+fixture cleanup
+```
+
+`fixture open cursor` copies `.claude/skills/debug/fixtures/cursor.md` to a unique
+OS-temporary directory and records its path in the socket-specific manifest.
+`fixture replace` may write only that manifest-owned file. Replacement waits for a
+revision change. `fixture cleanup` closes the document, removes only the recorded
+temporary directory, then removes the manifest.
+
+Safety rules:
+
+- Replace and cleanup fail when no manifest-owned fixture is active.
+- The manifest directory must be under the OS temporary `peekmd-debug-*` prefix.
+- The fixture file must be inside that recorded directory.
+- A malformed or out-of-prefix manifest is never deleted.
+- A scenario using a pre-existing user document is read-only. Scenarios clean up
+  fixtures they created, including after a failure.
+
+## Scenarios
+
+```text
+scenario cursor-roundtrip [--selector CSS_SELECTOR --offset N]
+scenario live-reload
+scenario selection-drag
+```
+
+`cursor-roundtrip` opens the cursor fixture when needed, places a preview cursor,
+round-trips through editor mode, and asserts exact source and rendered offsets plus
+visible caret geometry. `live-reload` verifies stale native selection and preview
+caret state are cleared after a fixture revision changes.
+
+`selection-drag` runs the focused browser E2E test named
+`preserves native text selection instead of replacing it with a preview cursor`.
+It is explicitly browser coverage: synthetic WebView mouse events do not prove
+native WKWebView drag selection.
+
+## Diagnostic bundles
+
+```text
+diagnose cursor [--output DIRECTORY]
+```
+
+Without `--output`, the CLI creates a timestamped directory under the OS temporary
+directory. An explicit directory must be empty. The bundle contains:
+
+```text
+summary.json
+state.json
+console.json
+rendered.html
+screenshot.png
+app.log
+```
+
+State, HTML, screenshot, and log capture run independently; a failed non-critical
+source is recorded and does not stop the other captures. State or screenshot
+failure produces a non-zero exit status. `app.log` contains only the newest 200
+lines from the newest `peekmd*.log` file in the development log directory.
+
+Bundles stay local and are never uploaded. Rendered HTML, document paths, console
+entries, and logs may contain private document data; treat the bundle accordingly.
+
+## Visual verification and socket notes
+
+Use the native screenshot for macOS window chrome and retina pixels:
+
+```bash
+node .claude/skills/debug/peekmd-ctl.mjs screenshot-native /tmp/peekmd-native.png
+```
+
+The socket accepts newline-delimited JSON and is present only in debug builds.
+The DOM canvas screenshot can fail for `file://` resources; use
+`screenshot-native` for visual verification.

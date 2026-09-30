@@ -23,7 +23,7 @@ PeekMD is registered as the **default** handler for `.md`, `.markdown`, `.mdown`
 
 | Topic | File |
 | --- | --- |
-| Markdown source editing | [rendering.md#source-preserving-edit-mode](rendering.md#source-preserving-edit-mode) |
+| Markdown source editing and preview cursor | [editor.md](editor.md) |
 | Keyboard shortcuts | [keyboard-shortcuts.md](keyboard-shortcuts.md) |
 | Sidebar — open docs, recently viewed, resize, disambiguation | [sidebar.md](sidebar.md) |
 | Live reload and scroll-to-change | [live-reload.md](live-reload.md) |
@@ -66,8 +66,9 @@ Build requirements: Rust stable, Bun, Xcode Command Line Tools (macOS 14+, Apple
 ## Testing
 
 ```
-bun run test                              # frontend unit tests (vitest + jsdom)
-cargo test                                # (from src-tauri/) Rust unit tests
+bun run test                              # unit + debug CLI + browser E2E suites
+bun run test:unit                         # frontend unit tests (Vitest + jsdom)
+bun run test:debug                        # debug CLI tests with a fake socket transport
 bunx playwright test --project=browser    # e2e — headless Chromium, IPC mocked, no app needed
 bunx playwright test --project=tauri      # e2e — drives the real running app (needs `bun run tauri dev`)
 ```

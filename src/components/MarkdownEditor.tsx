@@ -10,12 +10,18 @@ import type { EditSession } from '../store';
 import { markdownHrefAt } from '../lib/editorLinks';
 import type { SourceAnchor } from '../lib/sourcePosition';
 
+export type EditorCursorState = { offset: number; line: number; column: number };
+export type EditorCursorInput = { offset?: number; line?: number; column?: number };
+
 export type MarkdownEditorHandle = {
   captureAnchor(): SourceAnchor;
   captureCursor(): number;
+  cursorState(): EditorCursorState;
+  setCursor(input: EditorCursorInput): boolean;
   revealAnchor(anchor: SourceAnchor): void;
   focus(): void;
 };
+ 
 
 type MarkdownEditorProps = {
   session: EditSession;
@@ -94,15 +100,42 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       return { line: line.number, offsetPx: view.documentTop + block.top - containerRect.top };
     },
     captureCursor: () => viewRef.current?.state.selection.main.head ?? 0,
+    cursorState: () => {
+      const view = viewRef.current;
+      if (!view) return { offset: 0, line: 1, column: 1 };
+      const offset = view.state.selection.main.head;
+      const line = view.state.doc.lineAt(offset);
+      return { offset, line: line.number, column: offset - line.from + 1 };
+    },
+    setCursor: input => {
+      const view = viewRef.current;
+      if (!view) return false;
+      const hasOffset = input.offset !== undefined;
+      const hasLineColumn = input.line !== undefined || input.column !== undefined;
+      if ((hasOffset && hasLineColumn) || (!hasOffset && (input.line === undefined || input.column === undefined))) return false;
+      let offset: number;
+      if (hasOffset) {
+        if (!Number.isSafeInteger(input.offset) || input.offset! < 0 || input.offset! > view.state.doc.length) return false;
+        offset = input.offset!;
+      } else {
+        if (!Number.isSafeInteger(input.line) || !Number.isSafeInteger(input.column) || input.line! < 1 || input.column! < 1 || input.line! > view.state.doc.lines) return false;
+        const line = view.state.doc.line(input.line!);
+        offset = line.from + input.column! - 1;
+        if (offset > line.to) return false;
+      }
+      view.dispatch({ selection: { anchor: offset }, scrollIntoView: true });
+      view.focus();
+      return true;
+    },
     revealAnchor: reveal,
     focus: () => viewRef.current?.focus(),
   }), [scrollContainer]);
+
 
   useEffect(() => {
     if (!hostRef.current) return;
     const reportCursor = (position: number) => {
       onCursorChange(session.path, position);
-      if (import.meta.env.DEV && hostRef.current) hostRef.current.dataset.cursorOffset = String(position);
     };
     const buildExtensions = (lineSeparator: string): Extension[] => {
       const updateListener = EditorView.updateListener.of(update => {

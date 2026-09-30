@@ -20,8 +20,9 @@ cargo check              # (from src-tauri/) Rust typecheck
 bash scripts/release-unsigned.sh   # build unsigned DMG
 bash scripts/install-skill.sh      # install agent skill into ~/.claude/skills/
 
-bun run test             # frontend unit tests + browser E2E
+bun run test             # frontend unit tests + debug client + browser E2E
 bun run test:unit        # frontend unit tests only (Vitest)
+bun run test:debug       # socket-independent debug CLI tests
 bun run test:edit-mode   # focused browser E2E for Markdown editing
 cargo test               # (from src-tauri/) Rust unit tests
 ```
@@ -58,6 +59,7 @@ Full feature docs live in `docs/`. Key files:
 | Topic | File |
 | --- | --- |
 | Keyboard shortcuts | `docs/keyboard-shortcuts.md` |
+| Markdown editor and preview cursor | `docs/editor.md` |
 | Sidebar (resize, disambiguation, context menu) | `docs/sidebar.md` |
 | Live reload and scroll-to-change | `docs/live-reload.md` |
 | Session persistence | `docs/persistence.md` |

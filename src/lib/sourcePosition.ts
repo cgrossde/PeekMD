@@ -106,11 +106,43 @@ export function sourceOffsetToRenderedOffset(source: string, rendered: string, s
   return nearest;
 }
 
+function markdownRenderedOffsetToSourceOffset(source: string, rendered: string, renderedOffset: number): number | null {
+  let output = '';
+  const boundaries = [0];
+  let index = 0;
+  const append = (value: string, sourceEnd: number) => {
+    output += value;
+    for (let unit = 0; unit < value.length; unit += 1) boundaries.push(sourceEnd);
+  };
+  while (index < source.length) {
+    if (source[index] === '`' || source.startsWith('**', index) || source.startsWith('__', index)) { index += source.startsWith('**', index) || source.startsWith('__', index) ? 2 : 1; continue; }
+    const image = source.startsWith('![', index);
+    const link = source[index] === '[';
+    if (image || link) {
+      const labelStart = index + (image ? 2 : 1);
+      const labelEnd = source.indexOf(']', labelStart);
+      const destinationEnd = labelEnd >= 0 && source[labelEnd + 1] === '(' ? source.indexOf(')', labelEnd + 2) : (labelEnd >= 0 && source.startsWith('[]', labelEnd + 1) ? labelEnd + 2 : -1);
+      if (labelEnd >= 0 && destinationEnd >= 0) {
+        if (!image) append(source.slice(labelStart, labelEnd), labelEnd);
+        index = image ? destinationEnd + 1 : destinationEnd;
+        continue;
+      }
+    }
+    append(source[index], index + 1);
+    index += 1;
+  }
+  const start = output.indexOf(rendered);
+  if (start < 0) return null;
+  return boundaries[start + Math.min(Math.max(renderedOffset, 0), rendered.length)] ?? null;
+}
+
 export function previewCursorToOffset(text: Text, cursor: PreviewCursor): number {
   if (cursor.sourceOffset !== undefined) return Math.min(Math.max(cursor.sourceOffset, 0), text.length);
   const range = sourceRangeToOffsets(text, cursor.sourceRange);
   const sourceText = text.sliceString(range.from, range.to);
-  const local = renderedOffsetToSourceOffset(sourceText, cursor.renderedText, cursor.renderedOffset) ?? 0;
+  const local = renderedOffsetToSourceOffset(sourceText, cursor.renderedText, cursor.renderedOffset)
+    ?? markdownRenderedOffsetToSourceOffset(sourceText, cursor.renderedText, cursor.renderedOffset)
+    ?? 0;
   return Math.min(range.from + local, range.to);
 }
 

@@ -9,7 +9,7 @@ test('transfers a clicked preview cursor into the focused editor', async ({ taur
   const editor = tauriPage.locator('.cm-content');
   await expect(editor).toBeVisible();
   expect(await editor.evaluate((element: Element) => element === document.activeElement)).toBe(true);
-  expect(Number(await tauriPage.locator('.peekmd-editor').getAttribute('data-cursor-offset'))).toBe(19 + previewOffset);
+  expect(await tauriPage.evaluate<{ offset: number } | null>('window.__PEEKMD_DEBUG__?.getState().editorCursor ?? null')).toEqual({ offset: 19 + previewOffset, line: 3, column: 1 + previewOffset });
 });
 
 test('preserves the exact source cursor through repeated preview round trips', async ({ tauriPage }) => {
@@ -27,7 +27,7 @@ test('preserves the exact source cursor through repeated preview round trips', a
 
   await tauriPage.keyboard.press('Meta+Enter');
   await tauriPage.keyboard.type(' CURSOR');
-  await expect(referenceLine).toContainText('[Reference][] CURSOR');
+  await expect(referenceLine).toContainText('[Reference][] and [unrelated](other.md). CURSOR');
 
   await tauriPage.keyboard.press('Meta+Enter');
   await expect(previewCaret).toBeVisible();
@@ -36,10 +36,10 @@ test('preserves the exact source cursor through repeated preview round trips', a
     const anchor = selection?.anchorNode;
     const parent = anchor instanceof Element ? anchor : anchor?.parentElement;
     return parent?.closest('[data-sourcepos]')?.getAttribute('data-sourcepos') ?? null;
-  })).toBe('7:14-7:20');
+  })).toBe('7:14-7:47');
   await tauriPage.keyboard.press('Meta+Enter');
   await tauriPage.keyboard.type(' AGAIN');
-  await expect(referenceLine).toContainText('[Reference][] CURSOR AGAIN');
+  await expect(referenceLine).toContainText('[Reference][] and [unrelated](other.md). CURSOR AGAIN');
 });
 
 test('restores a cursor inside plain text after inline code', async ({ tauriPage }) => {
@@ -140,7 +140,7 @@ test('preserves the source cursor and synchronized scroll region across preview'
 
   await tauriPage.keyboard.press('Meta+Enter');
   await tauriPage.keyboard.type(' CURSOR');
-  await expect(cursorLine).toContainText('[Reference][] CURSOR');
+  await expect(cursorLine).toContainText('[Reference][] and [unrelated](other.md). CURSOR');
   const restoredEditorTop = await tauriPage.locator('.peekmd-doc-scroll').evaluate((element: Element) => element.scrollTop);
   expect(restoredEditorTop).toBeGreaterThan(0);
 });

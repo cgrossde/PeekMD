@@ -11,11 +11,13 @@ import '@fontsource/inter/600.css';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
 import { applyTheme } from './lib/theme';
+import { installDebugCapture } from './lib/debugBridge';
 
 // Best-effort paint before the store hydrates the persisted override (avoids
 // a flash of the wrong theme). App.tsx takes over from here once the real
 // `ui.themeOverride` is known and keeps it in sync going forward.
 applyTheme(null);
+installDebugCapture();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

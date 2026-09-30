@@ -9,8 +9,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "check-offline": "bash scripts/check-offline.sh",
-    "test": "bun run test:unit && bun run test:e2e:browser",
+    "test": "bun run test:unit && bun run test:debug && bun run test:e2e:browser",
     "test:unit": "vitest run",
+    "test:debug": "node --test .claude/skills/debug/peekmd-client.test.mjs",
     "test:watch": "vitest",
     "test:e2e:browser": "playwright test --project=browser",
     "test:edit-mode": "playwright test e2e/tests/edit-mode.spec.ts --project=browser"

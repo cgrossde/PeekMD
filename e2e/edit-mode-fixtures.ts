@@ -1,7 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { createTauriTest } from '@srsholmes/tauri-playwright';
 
 const fixturePath = '/tmp/peekmd-edit-fixture.md';
-const initialSource = '# Distant heading\n\nIntro block.\n\n**bold text** and [inline link](other.md).\n\n[Reference][]\n\n`inline code` and an image: ![alt](missing-image.png)\n\n[reference]: https://example.test/reference\n\nMore content.\n\nFinal block.\n';
+const initialSource = readFileSync(new URL('../.claude/skills/debug/fixtures/cursor.md', import.meta.url), 'utf8');
 
 function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');

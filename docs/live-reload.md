@@ -73,6 +73,10 @@ This keeps background files from consuming render cycles while the user is readi
 
 While the active document is in transient CodeMirror edit mode, `markDirty` reads an `EditableDocument` instead of immediately replacing the draft. If the disk revision still matches the edit session base, the latest rendered HTML and image watches are merged without disturbing the draft. A clean, unchanged session automatically adopts a different disk revision; a dirty or changed draft retains the local source, stores the complete disk snapshot, and enters conflict. Autosave is paused until the user reloads from disk, overwrites against the latest revision, or retries an I/O failure. If edit mode ends while the read is pending, the changed document is refreshed or marked dirty for later activation. Scroll-to-change is disabled while editing and resumes when preview returns.
 
+Whenever refreshed HTML replaces the active preview, `MarkdownPreview` clears both the native DOM selection and its synthetic blue caret. This prevents a cursor range from retaining text nodes owned by the previous render.
+
+See [editor.md](editor.md#draft-and-save-states) for the complete edit-session state machine and recovery actions.
+
 ### markRemoved path
 
 On a `file-removed` event, `markRemoved(path)` sets `doc.removed = true` on the matching open doc. The doc stays in the sidebar with a `[removed]` badge. The last rendered HTML remains visible. No automatic close — the user decides when to close it.

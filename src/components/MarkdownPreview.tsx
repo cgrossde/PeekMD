@@ -8,7 +8,8 @@ type MarkdownPreviewProps = {
 
 export type MarkdownPreviewHandle = {
   captureCursor(): PreviewCursor | null;
-  restoreCursor(source: Text, offset: number): boolean;
+  restoreCursor(source: Text, offset: number, remembered?: PreviewCursor): boolean;
+  setCursor(selector: string, renderedOffset: number): boolean;
 };
 
 const INTERACTIVE_SELECTOR = 'a,button,input,select,textarea,summary,[role="button"],[role="link"],[role="checkbox"],[contenteditable="true"],.peekmd-mermaid-controls,.peekmd-mermaid-viewport';
@@ -100,6 +101,7 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreview
   const caretRef = useRef<HTMLDivElement>(null);
   const caretRangeRef = useRef<Range | null>(null);
   const cursorRef = useRef<PreviewCursor | null>(null);
+  const previousHtmlRef = useRef(html);
   const frameRef = useRef<number | null>(null);
 
   const hideCaret = () => {
@@ -142,25 +144,66 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreview
 
   useImperativeHandle(ref, () => ({
     captureCursor: () => cursorRef.current,
-    restoreCursor: (source, offset) => {
+    restoreCursor: (source, offset, remembered) => {
       const article = articleRef.current;
-      const point = article ? domPointForSourceOffset(article, source, offset) : null;
-      if (!article || !point) return false;
+      if (!article) return false;
+      const rememberedSelector = remembered ? `[data-sourcepos="${remembered.sourceRange.startLine}:${remembered.sourceRange.startColumn}-${remembered.sourceRange.endLine}:${remembered.sourceRange.endColumn}"]` : null;
+      const rememberedElement = rememberedSelector ? article.querySelector(rememberedSelector) : null;
+      if (remembered && rememberedElement?.textContent === remembered.renderedText) {
+        const nodes = textNodes(rememberedElement);
+        const rememberedPoint = pointAtRenderedOffset(nodes, remembered.renderedOffset);
+        if (rememberedPoint) {
+          const rememberedRange = article.ownerDocument.createRange();
+          rememberedRange.setStart(rememberedPoint.node, rememberedPoint.offset);
+          rememberedRange.collapse(true);
+          if (applyRange(rememberedRange)) {
+            cursorRef.current = { ...remembered, sourceOffset: offset };
+            positionCaret();
+            return true;
+          }
+        }
+      }
+      const point = domPointForSourceOffset(article, source, offset);
+      if (!point) return false;
       const range = article.ownerDocument.createRange();
       range.setStart(point.node, point.offset);
       range.collapse(true);
       if (!applyRange(range)) return false;
-      if (cursorRef.current) cursorRef.current = { ...cursorRef.current, sourceOffset: offset };
+      if (cursorRef.current) cursorRef.current = remembered ? { ...remembered, sourceOffset: offset } : { ...cursorRef.current, sourceOffset: offset };
+      return true;
+    },
+    setCursor: (selector, renderedOffset) => {
+      const article = articleRef.current;
+      if (!article || !selector || !Number.isSafeInteger(renderedOffset) || renderedOffset < 0) return false;
+      let element: Element | null;
+      try {
+        element = article.querySelector(selector);
+      } catch {
+        return false;
+      }
+      if (!element || !article.contains(element)) return false;
+      const nodes = textNodes(element);
+      const textLength = nodes.reduce((length, node) => length + node.data.length, 0);
+      if (renderedOffset > textLength) return false;
+      const point = pointAtRenderedOffset(nodes, renderedOffset);
+      if (!point) return false;
+      const range = article.ownerDocument.createRange();
+      range.setStart(point.node, point.offset);
+      range.collapse(true);
+      if (!applyRange(range)) return false;
+      if (cursorRef.current) cursorRef.current = { ...cursorRef.current, renderedText: element.textContent ?? '', renderedOffset };
+      positionCaret();
       return true;
     },
   }), []);
 
   useLayoutEffect(() => {
+    if (previousHtmlRef.current === html) return;
+    previousHtmlRef.current = html;
     if (!caretRangeRef.current && !cursorRef.current) return;
     window.getSelection()?.removeAllRanges();
     hideCaret();
   }, [html]);
-
   useEffect(() => {
     const article = articleRef.current;
     const surface = surfaceRef.current;

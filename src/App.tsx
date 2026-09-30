@@ -27,6 +27,7 @@ import { resolveMarkdownImages } from './lib/mdImages';
 import { hydrateMermaid } from './lib/mermaid';
 import { useSidebarResize } from './lib/sidebarResize';
 import { capturePreviewAnchor, previewCursorToOffset, restorePreviewAnchor, type PreviewCursor, type SourceAnchor } from './lib/sourcePosition';
+import { clearDebugConsoleEntries, getDebugConsoleEntries, type PeekMdDebugBridge, type DebugSnapshot } from './lib/debugBridge';
 let didHydrate = false;
 const detachedPath = new URLSearchParams(window.location.search).get('detached');
 const isDetached = detachedPath !== null;
@@ -42,7 +43,7 @@ export default function App() {
   const sourceAnchors = useRef<Map<string, SourceAnchor>>(new Map());
   const editorCursors = useRef<Map<string, number>>(new Map());
   const previewCursors = useRef<Map<string, { cursor: PreviewCursor; revision: string }>>(new Map());
-  const pendingPreviewCursors = useRef<Map<string, { source: Text; offset: number }>>(new Map());
+  const pendingPreviewCursors = useRef<Map<string, { source: Text; offset: number; attempts: number; cursor?: PreviewCursor }>>(new Map());
   const scrollPositions = useRef<Map<string, number>>(new Map());
   const prevDocIdRef = useRef<string | null>(null);
   const prevEditingRef = useRef(false);
@@ -65,7 +66,7 @@ export default function App() {
       const cursor = editorRef.current?.captureCursor();
       if (cursor !== undefined) {
         editorCursors.current.set(path, cursor);
-        pendingPreviewCursors.current.set(path, { source: state.editSession.draft, offset: cursor });
+        pendingPreviewCursors.current.set(path, { source: state.editSession.draft, offset: cursor, attempts: 0, cursor: previewCursors.current.get(path)?.cursor });
       }
       const finished = await state.finishEditing();
       if (!finished) pendingPreviewCursors.current.delete(path);
@@ -175,19 +176,51 @@ export default function App() {
     const pending = pendingPreviewCursors.current.get(path);
     if (!pending) return;
     let frame = 0;
-    let attempts = 0;
     const restore = () => {
-      if (previewRef.current?.restoreCursor(pending.source, pending.offset)) {
+      if (previewRef.current?.restoreCursor(pending.source, pending.offset, pending.cursor)) {
         if (pendingPreviewCursors.current.get(path) === pending) pendingPreviewCursors.current.delete(path);
         return;
       }
-      attempts += 1;
-      if (attempts < 3) frame = requestAnimationFrame(restore);
+      pending.attempts += 1;
+      if (pending.attempts < 3) frame = requestAnimationFrame(restore);
       else if (pendingPreviewCursors.current.get(path) === pending) pendingPreviewCursors.current.delete(path);
     };
     frame = requestAnimationFrame(restore);
     return () => cancelAnimationFrame(frame);
   }, [activeDoc?.path, activeDoc?.html, activeDoc?.revision.sha256, isEditing]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const getSnapshot = (): DebugSnapshot => {
+      const state = useStore.getState();
+      const active = state.openDocs.find(doc => doc.path === state.activeDocId) ?? null;
+      const editing = Boolean(active && state.editSession?.path === active.path);
+      const pending = active ? pendingPreviewCursors.current.get(active.path) : undefined;
+      return {
+        mode: !active ? 'empty' : editing ? 'editor' : 'preview',
+        activeDocument: active ? { path: active.path, title: active.title, revision: active.revision, dirty: active.dirty } : null,
+        editSession: state.editSession && editing ? { path: state.editSession.path, status: state.editSession.status, baseRevision: state.editSession.baseRevision, resetGeneration: state.editSession.resetGeneration } : null,
+        editorCursor: editing ? editorRef.current?.cursorState() ?? null : null,
+        previewCursor: !editing ? previewRef.current?.captureCursor() ?? null : null,
+        pendingPreviewCursor: pending && active ? { path: active.path, offset: pending.offset, attempts: pending.attempts } : null,
+      };
+    };
+    const bridge: PeekMdDebugBridge = {
+      getState: getSnapshot,
+      toggleEditMode,
+      setEditorCursor: input => editorRef.current?.setCursor(input) ?? false,
+      setPreviewCursor: (selector, renderedOffset) => previewRef.current?.setCursor(selector, renderedOffset) ?? false,
+      openFile: path => useStore.getState().openFile(path),
+      closeDocument: path => useStore.getState().close(path),
+      refreshActive: () => useStore.getState().refreshActive(),
+      getConsoleEntries: getDebugConsoleEntries,
+      clearConsoleEntries: clearDebugConsoleEntries,
+    };
+    window.__PEEKMD_DEBUG__ = bridge;
+    return () => {
+      if (window.__PEEKMD_DEBUG__ === bridge) delete window.__PEEKMD_DEBUG__;
+    };
+  }, [toggleEditMode]);
 
 
 
