@@ -1,10 +1,10 @@
 # Keyboard shortcuts
 
-PeekMD uses macOS-native `⌘` (Command) key chords throughout. All shortcuts are registered at the `window` level; no focus on a specific element is required unless noted.
+PeekMD uses macOS-native `⌘` (Command) key chords throughout. All shortcuts are registered at the `window` level; no focus on a specific element is required unless noted. The toolbar `?` button opens a full keyboard shortcut reference.
 
 ## Global (always active)
 
-These handlers live in `src/lib/keybindings.ts`, installed once by `installGlobalKeybindings()` in `App.tsx`. They are suppressed entirely while the Command Palette or Find bar is open (`ui.paletteOpen || ui.findOpen`) — otherwise a background shortcut like `⌘W` could close the active document out from under an open overlay. The palette and find bar own all keyboard input while open; they bind `⌘K` / `⌘F` / `Esc` / arrow keys directly on their own input element, independent of this global handler.
+These handlers live in `src/lib/keybindings.ts`, installed once by `installGlobalKeybindings()` in `App.tsx`. They are suppressed entirely while the Command Palette, Find bar, or keyboard shortcuts modal is open (`ui.paletteOpen || ui.findOpen || ui.shortcutsOpen`) — otherwise a background shortcut like `⌘W` could close the active document out from under an open overlay. The palette, find bar, and shortcuts modal own all keyboard input while open; the palette and find bar bind their own `⌘K` / `⌘F` / `Esc` / arrow keys directly on their input element, independent of this global handler.
 
 | Chord | Action | Notes |
 | --- | --- | --- |
@@ -53,9 +53,10 @@ These bindings are registered by their respective components, not by `keybinding
 | `Esc` | Close command palette | `CommandPalette.tsx` | Only when palette is open. |
 | `⌘F` | Open find bar | `FindBar.tsx` | Always opens (even if already open, it re-focuses). |
 | `Esc` | Close find bar | `FindBar.tsx` | Restores original document HTML. |
-| `↑` / `↓` | Navigate results | `CommandPalette.tsx` | Wraps at the list boundaries. |
+| `↑` / `↓` | Navigate results | `CommandPalette.tsx` | Stops at the first/last result. |
 | `Enter` | Run selected result | `CommandPalette.tsx` | Runs the top result when nothing is explicitly selected. |
 | `Enter` | Cycle to next match | `FindBar.tsx` | Wraps from last match back to first. |
+| `⇧Enter` | Cycle to previous match | `FindBar.tsx` | Wraps from first match back to last. |
 
 ## Theme / UI
 

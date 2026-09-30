@@ -43,6 +43,7 @@ export type UiState = {
   themeOverride: 'light' | 'dark' | null;
   paletteOpen: boolean;
   findOpen: boolean;
+  shortcutsOpen: boolean;
 };
 
 type TaskEditResult = { status: 'updated' | 'conflict'; document: RenderedDoc; reason?: string };
@@ -125,6 +126,7 @@ export type StoreState = {
   toggleTheme: () => void;
   setPalette: (open: boolean) => void;
   setFind: (open: boolean) => void;
+  setShortcuts: (open: boolean) => void;
   clearError: () => void;
   setInfoToast: (msg: string | null) => void;
   hydrateFromDisk: () => Promise<Record<string, number>>;
@@ -177,7 +179,7 @@ export const useStore = create<StoreState>()((set, get) => {
 
   return {
     openDocs: [], activeDocId: null, recentlyViewed: [], lastError: null, infoToast: null,
-    ui: { sidebarVisible: true, tocVisible: true, themeOverride: null, paletteOpen: false, findOpen: false },
+    ui: { sidebarVisible: true, tocVisible: true, themeOverride: null, paletteOpen: false, findOpen: false, shortcutsOpen: false },
     navBack: [], navForward: [], editSession: null, editLoadingPath: null,
 
     openFile: async (path, options) => {
@@ -431,13 +433,14 @@ export const useStore = create<StoreState>()((set, get) => {
     toggleTheme: () => set(s => ({ ui: { ...s.ui, themeOverride: flipTheme(s.ui.themeOverride) } })),
     setPalette: open => set(s => ({ ui: { ...s.ui, paletteOpen: open } })),
     setFind: open => set(s => ({ ui: { ...s.ui, findOpen: open } })),
+    setShortcuts: open => set(s => ({ ui: { ...s.ui, shortcutsOpen: open, ...(open ? { paletteOpen: false, findOpen: false } : {}) } })),
     clearError: () => set({ lastError: null }),
     setInfoToast: msg => set({ infoToast: msg }),
 
     hydrateFromDisk: async () => {
       const persisted = await loadState();
       if (!persisted) return {};
-      set(s => ({ ui: { ...s.ui, ...persisted.ui, paletteOpen: false, findOpen: false }, recentlyViewed: persisted.recentlyViewed }));
+      set(s => ({ ui: { ...s.ui, ...persisted.ui, paletteOpen: false, findOpen: false, shortcutsOpen: false }, recentlyViewed: persisted.recentlyViewed }));
       const validPaths: string[] = [];
       for (const p of persisted.openDocs) {
         try { await get().openFile(p, { pushHistory: false, activate: false, prepend: false, openedAt: persisted.openedAt[p] ?? new Date().toISOString(), prune: false }); validPaths.push(p); } catch { /* missing file */ }

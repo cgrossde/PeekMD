@@ -25,7 +25,7 @@
 - **Find in document** — incremental search with match count and prev/next navigation (⌘F)
 - **Command palette** — fuzzy-search open files, headings, and commands (⌘K)
 - **Session restore** — open documents, scroll positions, and theme survive restarts
-- **Light / dark / system theme** — follows macOS appearance by default; override with ⌘⇧L
+- **Light / dark / system theme** — follows macOS appearance by default; override with ⌘⇧D
 - **Offline** — no CDN dependencies; all assets bundled, including Mermaid
 
 Built on [Tauri v2](https://tauri.app) + [React 19](https://react.dev) + [comrak](https://github.com/kivikakk/comrak). Renders in WKWebView. ~6 MB app bundle.
@@ -72,14 +72,16 @@ open -a PeekMD README.md
 |--------|----------|
 | Open file | ⌘O |
 | Close document | ⌘W |
-| Navigate back / forward | ⌘[ / ⌘] |
+| Navigate back / forward | ⌘← / ⌘→ |
 | Find in document | ⌘F |
 | Command palette | ⌘K |
 | Toggle sidebar | ⌘\\ |
-| Toggle TOC | ⌘T |
-| Toggle theme | ⌘⇧L |
+| Toggle TOC | ⌘⇧T |
+| Toggle theme | ⌘⇧D |
 | Switch to doc N | ⌘1 – ⌘9 |
 | Reload | ⌘R |
+
+The toolbar `?` button opens the full keyboard shortcut reference.
 
 Full list: [docs/keyboard-shortcuts.md](docs/keyboard-shortcuts.md)
 

@@ -90,3 +90,61 @@ test('⌘W while the command palette is open does not close the document (modal-
 
   await expect(tauriPage.locator('.peekmd-topbar-title')).toContainText('Hello PeekMD');
 });
+
+test('opens shortcuts modal, captures commands, dismisses, and restores focus', async ({ tauriPage }) => {
+  const trigger = tauriPage.getByRole('button', { name: 'Keyboard shortcuts' });
+  const modal = tauriPage.getByRole('dialog', { name: 'Keyboard shortcuts' });
+
+  await trigger.click();
+  await expect(modal).toBeVisible();
+  await expect(modal).toHaveAttribute('aria-modal', 'true');
+
+  await tauriPage.keyboard.press('Meta+w');
+  await expect(tauriPage.locator('.peekmd-topbar-title')).toContainText('Hello PeekMD');
+
+  await tauriPage.keyboard.press('Escape');
+  await expect(modal).toHaveCount(0);
+  expect(await tauriPage.evaluate<string>('document.activeElement?.getAttribute("aria-label") ?? ""')).toBe('Keyboard shortcuts');
+
+  await trigger.click();
+  await tauriPage.getByRole('button', { name: 'Close keyboard shortcuts' }).click();
+  await expect(modal).toHaveCount(0);
+  expect(await tauriPage.evaluate<string>('document.activeElement?.getAttribute("aria-label") ?? ""')).toBe('Keyboard shortcuts');
+
+  await trigger.click();
+  await tauriPage.locator('.peekmd-shortcuts-backdrop').click({ position: { x: 1, y: 1 } });
+  await expect(modal).toHaveCount(0);
+});
+
+test.describe('narrow viewport', () => {
+  test.use({ viewport: { width: 600, height: 700 } });
+
+  test('keeps shortcuts modal within a narrow viewport', async ({ tauriPage }) => {
+    const trigger = tauriPage.getByRole('button', { name: 'Keyboard shortcuts' });
+    const modal = tauriPage.getByRole('dialog', { name: 'Keyboard shortcuts' });
+
+    await trigger.click();
+    await expect(modal).toBeVisible();
+
+    const bounds = await modal.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        documentWidth: document.documentElement.scrollWidth,
+        bodyWidth: document.body.scrollWidth,
+      };
+    });
+
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.top).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(bounds.viewportWidth);
+    expect(bounds.bottom).toBeLessThanOrEqual(bounds.viewportHeight);
+    expect(bounds.documentWidth).toBeLessThanOrEqual(bounds.viewportWidth);
+    expect(bounds.bodyWidth).toBeLessThanOrEqual(bounds.viewportWidth);
+  });
+});

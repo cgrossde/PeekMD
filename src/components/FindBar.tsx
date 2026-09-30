@@ -39,6 +39,7 @@ export function FindBar() {
   // ⌘F binding
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (useStore.getState().ui.shortcutsOpen) return;
       if (e.metaKey && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         setFind(true);

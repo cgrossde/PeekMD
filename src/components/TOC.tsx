@@ -34,6 +34,7 @@ export function TOC() {
   // ⌘⇧T keybinding
   useEffect(() => {
     const handler = async (e: KeyboardEvent) => {
+      if (useStore.getState().ui.shortcutsOpen) return;
       if (e.metaKey && e.shiftKey && e.key.toLowerCase() === 't') {
         e.preventDefault();
         const opening = !tocVisible;

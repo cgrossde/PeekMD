@@ -29,6 +29,7 @@ export function CommandPalette() {
   // ⌘K binding
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (useStore.getState().ui.shortcutsOpen) return;
       if (e.metaKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPalette(!paletteOpen);

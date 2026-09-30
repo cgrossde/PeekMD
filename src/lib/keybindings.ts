@@ -8,12 +8,9 @@ export function installGlobalKeybindings(toggleEditMode: () => void | Promise<un
     const k = e.key.toLowerCase();
     const st = useStore.getState();
 
-    // While the Command Palette or Find bar owns keyboard input, don't let
-    // background shortcuts fire underneath it — ⌘W previously closed the
-    // active document while the palette was open, which reads as data loss.
-    // Both overlays bind their own ⌘K/⌘F/Escape/arrow handling directly on
-    // their input element, so this early return doesn't affect them.
-    if (st.ui.paletteOpen || st.ui.findOpen) return;
+    // While an overlay owns keyboard input, don't let background shortcuts fire underneath it.
+    // The overlay handles its own dismissal and input bindings directly.
+    if (st.ui.paletteOpen || st.ui.findOpen || st.ui.shortcutsOpen) return;
     if (k === 'enter') {
       e.preventDefault();
       void toggleEditMode();

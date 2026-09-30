@@ -13,6 +13,7 @@ import { TopBar } from './components/TopBar';
 import { TOC } from './components/TOC';
 import { CommandPalette } from './components/CommandPalette';
 import { FindBar } from './components/FindBar';
+import { ShortcutsModal } from './components/ShortcutsModal';
 import { Toast } from './components/Toast';
 import { SkillPrompt, checkSkillPrompt } from './components/SkillPrompt';
 import { StatusBar } from './components/StatusBar';
@@ -317,6 +318,7 @@ export default function App() {
         {!isEditing && <TOC />}
       </div>
       <CommandPalette />
+      <ShortcutsModal />
       <Toast />
       {showSkillPrompt && <SkillPrompt onDismiss={() => setShowSkillPrompt(false)} />}
     </div>

@@ -12,6 +12,8 @@ export function TopBar() {
   const navigateForward = useStore(s => s.navigateForward);
   const setSidebar = useStore(s => s.setSidebar);
   const toggleTheme = useStore(s => s.toggleTheme);
+  const shortcutsOpen = useStore(s => s.ui.shortcutsOpen);
+  const setShortcuts = useStore(s => s.setShortcuts);
 
   const hasNav = navBack.length + navForward.length > 0;
 
@@ -71,6 +73,18 @@ export function TopBar() {
           title="Toggle theme (⌘⇧D)"
         >
           ◑
+        </button>
+        <button
+          type="button"
+          className="peekmd-topbar-icon-btn peekmd-shortcuts-trigger"
+          onClick={() => setShortcuts(true)}
+          aria-label="Keyboard shortcuts"
+          title="Keyboard shortcuts"
+          aria-haspopup="dialog"
+          aria-controls="peekmd-shortcuts-dialog"
+          aria-expanded={shortcutsOpen}
+        >
+          ?
         </button>
       </div>
     </header>
