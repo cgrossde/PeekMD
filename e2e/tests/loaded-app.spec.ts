@@ -19,6 +19,14 @@ test('shows the full link target in the status bar on hover', async ({ tauriPage
   await expect(tauriPage.locator('.peekmd-statusbar')).not.toHaveClass(/is-active/);
 });
 
+test('opens custom app links through the system opener', async ({ tauriPage }) => {
+  await tauriPage.locator('a[href="slack://open?team=example"]').click();
+
+  await expect.poll(() => tauriPage.evaluate(() => Reflect.get(globalThis, '__openedUrls'))).toEqual([
+    'slack://open?team=example',
+  ]);
+});
+
 test('keeps the status bar pinned to the middle content viewport while scrolling', async ({ tauriPage }) => {
   await tauriPage.evaluate(`(() => {
     const scroll = document.querySelector('.peekmd-doc-scroll');

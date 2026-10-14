@@ -103,8 +103,12 @@ Both are registered in `src/lib/keybindings.ts` as `metaKey + ArrowLeft/ArrowRig
 4. If `resolve_md_link` returns a path, calls `store.openFile(resolved)`:
    - If that path is already open, the tab is activated (history entry pushed).
    - If it is not open, the document is loaded fresh.
-5. If `resolve_md_link` returns `null`, the href is opened in the system
-   default browser via `tauri-plugin-opener`.
+5. If `resolve_md_link` returns `null`, the href is opened by the operating
+   system via `tauri-plugin-opener`. HTTP/HTTPS links use the default browser;
+   custom hierarchical schemes such as `slack://` use their registered app.
+
+The opener capability explicitly allows custom hierarchical URL schemes with
+`*://*`; the operating system still decides whether a handler is installed.
 
 ### `resolve_md_link` (Rust)
 

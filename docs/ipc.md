@@ -135,7 +135,7 @@ Capabilities are declared in `src-tauri/capabilities/default.json` and apply to 
 | `core:default` | Core IPC, window management, event emit/listen |
 | `core:event:default` | `emit` / `listen` for custom events |
 | `dialog:default` + `dialog:allow-open` | File open dialog (`⌘O`) via `tauri-plugin-dialog` |
-| `opener:default` + `opener:allow-reveal-item-in-dir` | Reveal in Finder via `tauri-plugin-opener` |
+| `opener:default` + scoped `opener:allow-open-url` + `opener:allow-reveal-item-in-dir` | Open standard URLs, custom `*://*` app links, and reveal files via `tauri-plugin-opener` |
 | `window-state:default` | Persist and restore window bounds via `tauri-plugin-window-state` |
 | `store:default` | Read/write `state.json` via `tauri-plugin-store` |
 | `core:window:allow-destroy` | Allows the edit-session close guard to destroy the window only after a clean flush. |
