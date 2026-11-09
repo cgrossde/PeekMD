@@ -3,10 +3,10 @@ import { Text } from '@codemirror/state';
 import type { Persisted } from './lib/persistence';
 
 const defaultRevision = { sha256: 'seed', len: 0, file_id: 'seed:1' };
-const rendered = new Map<string, { html: string; title: string; headings: never[]; revision: typeof defaultRevision; local_images: string[] }>();
+const rendered = new Map<string, { html: string; title: string; headings: never[]; revision: typeof defaultRevision; meta: null; local_images: string[] }>();
 const sources = new Map<string, string>();
 function seed(path: string, html = `<p>${path}</p>`, revision = defaultRevision) {
-  rendered.set(path, { html, title: path.split('/').pop()!.replace(/\.md$/, ''), headings: [], revision, local_images: [] });
+  rendered.set(path, { html, title: path.split('/').pop()!.replace(/\.md$/, ''), headings: [], revision, meta: null, local_images: [] });
   sources.set(path, `# ${path}\n`);
 }
 let taskResponse: unknown = null;
@@ -18,7 +18,7 @@ const invoke = vi.fn(async (cmd: string, args?: Record<string, unknown>) => {
     const path = args!.path as string;
     const doc = rendered.get(path);
     if (!doc) throw new Error(`ENOENT: ${path}`);
-    return { html: doc.html, title: doc.title, path, headings: doc.headings, mtime: 0, revision: doc.revision, local_images: doc.local_images };
+    return { html: doc.html, title: doc.title, path, headings: doc.headings, mtime: 0, revision: doc.revision, meta: doc.meta, local_images: doc.local_images };
   }
   if (cmd === 'read_markdown_source') {
     const path = args!.path as string;

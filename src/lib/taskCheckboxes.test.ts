@@ -16,7 +16,7 @@ function mount(html: string) {
 
 function setActive(setTaskChecked: TaskSetter) {
   useStore.setState({
-    openDocs: [{ path, title: 'task', html: '', headings: [], mtime: 0, revision, dirty: false }],
+    openDocs: [{ path, title: 'task', html: '', meta: null, headings: [], mtime: 0, revision, dirty: false }],
     activeDocId: path,
     setTaskChecked,
   });

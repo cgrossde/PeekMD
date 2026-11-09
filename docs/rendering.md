@@ -58,8 +58,15 @@ fn build_options<'a>() -> Options<'a> {
 | `insert` | `++ins++` | Emits `<ins>` |
 | `underline` | `__underline__` | Replaces bold for `__` syntax |
 | `multiline_block_quotes` | `>>>` fenced blockquotes | |
-| `front_matter_delimiter` | `---` YAML front matter | Stripped silently; not rendered |
+| `front_matter_delimiter` | `---` YAML front matter | Parsed for the preview's expandable Meta section; the block itself is not rendered as Markdown. |
 | `header_id_prefix` | — | All heading ids prefixed with `peekmd-` |
+
+### Frontmatter Meta section
+
+When a document starts with a complete `---` frontmatter block, PeekMD validates its payload as YAML and returns it as `RenderedDoc.meta`. The preview renders valid metadata as a collapsed, native disclosure immediately after the first H1 (or at the top when there is no H1). The expanded panel contains the payload only, in a plain monospace `<pre><code>` block.
+
+Malformed YAML remains visible as a collapsed `Meta · invalid frontmatter` disclosure; expanding it shows the raw payload. Documents without a leading complete frontmatter block have no Meta section. The metadata text is excluded from preview-cursor source-position mapping.
+
 
 ### Not enabled
 
@@ -117,6 +124,11 @@ Headings are used by the TOC component (`src/components/TOC.tsx`) to render the 
 The `render_markdown` Tauri command returns:
 
 ```rust
+pub struct DocumentMeta {
+    pub content: String,     // frontmatter payload without delimiters
+    pub valid: bool,         // YAML parser result
+}
+
 pub struct RenderedDoc {
     pub html: String,         // full rendered HTML body
     pub title: String,        // file stem without extension
@@ -124,13 +136,14 @@ pub struct RenderedDoc {
     pub headings: Vec<Heading>,
     pub mtime: u64,           // modification time, Unix seconds
     pub revision: FileRevision,
+    pub meta: Option<DocumentMeta>,
     pub local_images: Vec<String>,
 }
 ```
 
 `mtime` and `revision` come from the same opened file snapshot. `revision.sha256` hashes the exact UTF-8 bytes, `revision.len` records their byte length, and `revision.file_id` stores the Unix device:inode pair as a string. The frontend uses the revision to reject stale checkbox writes while the watcher continues to use `mtime` for change notifications.
 
-`title` is the file stem (e.g., `README` for `README.md`) derived from `path.file_stem()`. There is no front-matter title extraction — PeekMD strips front matter but does not parse it.
+`title` is the file stem (e.g., `README` for `README.md`) derived from `path.file_stem()`. Frontmatter is exposed through `RenderedDoc.meta`; it does not become part of the rendered Markdown HTML.
 
 ## Source editing integration
 

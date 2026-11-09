@@ -8,10 +8,12 @@ import { stemName } from './lib/paths';
 export type DocId = string;
 export type Heading = { id: string; level: number; text: string };
 export type FileRevision = { sha256: string; len: number; file_id: string };
+export type DocumentMeta = { content: string; valid: boolean };
 export type Doc = {
   path: DocId;
   title: string;
   html: string;
+  meta: DocumentMeta | null;
   headings: Heading[];
   mtime: number;
   revision: FileRevision;
@@ -19,7 +21,7 @@ export type Doc = {
   dirty: boolean;
   removed?: boolean;
 };
-export type RenderedDoc = { html: string; title: string; path: string; headings: Heading[]; mtime: number; revision: FileRevision; local_images: string[] };
+export type RenderedDoc = { html: string; title: string; path: string; meta: DocumentMeta | null; headings: Heading[]; mtime: number; revision: FileRevision; local_images: string[] };
 export type EditableDocument = { source: string; line_separator: string; document: RenderedDoc };
 export type MarkdownSaveConflict = 'revision_changed' | 'file_replaced' | 'concurrent_write';
 export type MarkdownSaveResult =
@@ -138,8 +140,7 @@ export const useStore = create<StoreState>()((set, get) => {
     set(s => {
       const current = s.openDocs.find(d => d.path === path);
       if (!current || (guardRevision && !sameRevision(current.revision, guardRevision) && !sameRevision(current.revision, document.revision))) return s;
-      committed = true;
-      return { openDocs: s.openDocs.map(d => d.path === path ? { ...d, html: document.html, title: document.title, headings: document.headings, mtime: document.mtime, revision: document.revision, dirty: false, removed: false } : d) };
+      return { openDocs: s.openDocs.map(d => d.path === path ? { ...d, html: document.html, title: document.title, meta: document.meta, headings: document.headings, mtime: document.mtime, revision: document.revision, dirty: false, removed: false } : d) };
     });
     if (committed) void invoke('watch_images', { md: path, images: document.local_images }).catch(() => {});
     return committed;
@@ -191,7 +192,7 @@ export const useStore = create<StoreState>()((set, get) => {
       set(s => ({ recentlyViewed: s.recentlyViewed.filter(r => r.path !== path) }));
       if (openDocs.find(d => d.path === path)) { if (doActivate) await get().activate(path, { pushHistory }); return; }
       const r = await invoke<RenderedDoc>('render_markdown', { path });
-      const doc: Doc = { path, title: r.title, html: r.html, headings: r.headings, mtime: r.mtime, revision: r.revision, openedAt: options?.openedAt ?? new Date().toISOString(), dirty: false, removed: false };
+      const doc: Doc = { path, title: r.title, html: r.html, meta: r.meta, headings: r.headings, mtime: r.mtime, revision: r.revision, openedAt: options?.openedAt ?? new Date().toISOString(), dirty: false, removed: false };
       set(s => ({ openDocs: options?.prepend === false ? [...s.openDocs, doc] : [doc, ...s.openDocs] }));
       if (options?.prune !== false) get().pruneOpenDocuments();
       void invoke('watch_paths', { paths: [path] }).catch((err: unknown) => set({ lastError: `Watch failed: ${err}` }));

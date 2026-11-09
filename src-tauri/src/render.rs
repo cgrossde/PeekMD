@@ -27,6 +27,12 @@ pub struct Heading {
 }
 
 #[derive(Serialize, Clone)]
+pub struct DocumentMeta {
+    pub content: String,
+    pub valid: bool,
+}
+
+#[derive(Serialize, Clone)]
 pub struct RenderedDoc {
     pub html: String,
     pub title: String,
@@ -34,6 +40,8 @@ pub struct RenderedDoc {
     pub headings: Vec<Heading>,
     pub mtime: u64,
     pub revision: FileRevision,
+    /// Valid or invalid leading YAML frontmatter, if present.
+    pub meta: Option<DocumentMeta>,
     /// Absolute paths of local images referenced by the document.
     /// Used by the watcher to re-render when an image file changes.
     pub local_images: Vec<String>,
@@ -222,6 +230,32 @@ fn extract_headings<'a>(root: &'a AstNode<'a>, options: &Options) -> Vec<Heading
     headings
 }
 
+/// Extracts a leading comrak frontmatter node and validates its YAML payload.
+///
+/// Comrak only creates a `FrontMatter` node for a complete delimiter pair, so
+/// an unclosed block remains ordinary Markdown and produces no metadata.
+fn extract_meta<'a>(root: &'a AstNode<'a>) -> Option<DocumentMeta> {
+    let node = root.first_child()?;
+    let NodeValue::FrontMatter(raw) = &node.data().value else { return None; };
+    let content = frontmatter_payload(raw)?;
+    let valid = serde_yaml::from_str::<serde_yaml::Value>(&content).is_ok();
+    Some(DocumentMeta { content, valid })
+}
+
+fn frontmatter_payload(raw: &str) -> Option<String> {
+    let mut lines = raw.lines();
+    if lines.next()?.trim() != "---" { return None; }
+    let mut content = String::new();
+    for line in lines {
+        if line.trim() == "---" {
+            return Some(content);
+        }
+        if !content.is_empty() { content.push('\n'); }
+        content.push_str(line);
+    }
+    None
+}
+
 /// Walks the AST and collects absolute paths of local images.
 /// Skips URLs (http/https/data), fragment-only refs, and paths that don't
 /// resolve to an existing file relative to the document's directory.
@@ -360,6 +394,7 @@ fn render_source(path: &Path, snapshot: &FileSnapshot, source: &str) -> Result<R
     let arena = Arena::new();
     let root = parse_document(&arena, &source, &opts);
     let headings = extract_headings(root, &opts);
+    let meta = extract_meta(root);
     let local_images = extract_local_images(root, path);
     let mut html = String::new();
     InteractiveHtmlFormatter::format_document_with_plugins(root, &opts, &mut html, &plugins)
@@ -389,6 +424,7 @@ fn render_source(path: &Path, snapshot: &FileSnapshot, source: &str) -> Result<R
         headings,
         mtime,
         revision: snapshot.revision.clone(),
+        meta,
         local_images,
     })
 }
@@ -809,6 +845,50 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+
+    #[test]
+    fn render_markdown_extracts_valid_frontmatter_payload() {
+        let dir = std::env::temp_dir().join(format!("peekmd-meta-valid-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("skill.md");
+        std::fs::write(&path, "---\nname: step-by-step\nuser-invocable: true\n---\n# Skill\n").unwrap();
+
+        let doc = render_markdown(path.clone()).unwrap();
+
+        let meta = doc.meta.expect("frontmatter should be exposed");
+        assert!(meta.valid);
+        assert_eq!(meta.content, "name: step-by-step\nuser-invocable: true");
+        assert!(!doc.html.contains("step-by-step"), "frontmatter must stay out of rendered Markdown HTML");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn render_markdown_marks_invalid_frontmatter_without_hiding_it() {
+        let dir = std::env::temp_dir().join(format!("peekmd-meta-invalid-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("broken.md");
+        std::fs::write(&path, "---\nname: [broken\n---\n# Broken\n").unwrap();
+
+        let doc = render_markdown(path.clone()).unwrap();
+
+        let meta = doc.meta.expect("frontmatter should be exposed");
+        assert!(!meta.valid);
+        assert_eq!(meta.content, "name: [broken");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn render_markdown_ignores_nonleading_frontmatter() {
+        let dir = std::env::temp_dir().join(format!("peekmd-meta-nonleading-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ordinary.md");
+        std::fs::write(&path, "# Title\n\n---\nname: ordinary\n---\n").unwrap();
+
+        let doc = render_markdown(path.clone()).unwrap();
+
+        assert!(doc.meta.is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
     #[test]
     #[cfg(feature = "syntect")]
     fn renders_syntect_classes() {

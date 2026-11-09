@@ -97,6 +97,41 @@ body {
 .peekmd-preview-surface {
   position: relative;
 }
+.peekmd-preview-html { display: contents; }
+
+.markdown-body .peekmd-meta-disclosure {
+  margin: -4px 0 24px;
+}
+.markdown-body .peekmd-meta-disclosure summary {
+  padding: 4px 0 9px;
+  color: var(--fgColor-muted, #656d76);
+  cursor: pointer;
+  font-size: 0.9em;
+  font-weight: 500;
+}
+.markdown-body .peekmd-meta-disclosure summary:hover {
+  color: var(--fgColor-accent, #0969da);
+}
+.markdown-body .peekmd-meta-disclosure summary:focus-visible {
+  outline: 2px solid var(--focus-outlineColor, #0969da);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+.markdown-body .peekmd-meta-disclosure pre {
+  overflow: auto;
+  margin: 10px 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--borderColor-default, #d0d7de);
+  border-radius: 6px;
+  background: var(--bgColor-muted, #f6f8fa);
+  color: var(--fgColor-default, #1f2328);
+  font: 0.85em/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre;
+}
+.markdown-body .peekmd-meta-disclosure.is-invalid summary {
+  color: var(--fgColor-attention, #9a6700);
+}
+
 
 .peekmd-preview-caret {
   position: absolute;

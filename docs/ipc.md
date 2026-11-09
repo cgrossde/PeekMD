@@ -38,6 +38,11 @@ pub struct FileRevision {
     pub file_id: String, // Unix device:inode pair
 }
 
+pub struct DocumentMeta {
+    pub content: String,     // frontmatter payload without delimiters
+    pub valid: bool,         // YAML parser result
+}
+
 pub struct RenderedDoc {
     pub html: String,
     pub title: String,
@@ -45,6 +50,7 @@ pub struct RenderedDoc {
     pub headings: Vec<Heading>,
     pub mtime: u64,
     pub revision: FileRevision,
+    pub meta: Option<DocumentMeta>,
     pub local_images: Vec<String>,
 }
 

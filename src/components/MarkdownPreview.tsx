@@ -1,10 +1,20 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react';
 import type { Text } from '@codemirror/state';
 import { parseSourceRange, sourceOffsetToRenderedOffset, sourceRangeToOffsets, type PreviewCursor, type SourcePositionRange } from '../lib/sourcePosition';
+import type { DocumentMeta } from '../store';
+import { MetaDisclosure } from './MetaDisclosure';
 
 type MarkdownPreviewProps = {
   html: string;
+  meta: DocumentMeta | null;
 };
+
+function splitAfterFirstHeading(html: string): { before: string; after: string } {
+  const match = /<h1(?:\s[^>]*)?>[\s\S]*?<\/h1\s*>/i.exec(html);
+  if (!match || match.index === undefined) return { before: '', after: html };
+  const end = match.index + match[0].length;
+  return { before: html.slice(0, end), after: html.slice(end) };
+}
 
 export type MarkdownPreviewHandle = {
   captureCursor(): PreviewCursor | null;
@@ -12,7 +22,7 @@ export type MarkdownPreviewHandle = {
   setCursor(selector: string, renderedOffset: number): boolean;
 };
 
-const INTERACTIVE_SELECTOR = 'a,button,input,select,textarea,summary,[role="button"],[role="link"],[role="checkbox"],[contenteditable="true"],.peekmd-mermaid-controls,.peekmd-mermaid-viewport';
+const INTERACTIVE_SELECTOR = 'a,button,input,select,textarea,summary,[role="button"],[role="link"],[role="checkbox"],[contenteditable="true"],.peekmd-meta-disclosure,.peekmd-mermaid-controls,.peekmd-mermaid-viewport';
 
 function isInteractiveTarget(target: EventTarget | null, container: HTMLElement): boolean {
   return target instanceof Element && Boolean(target.closest(INTERACTIVE_SELECTOR)) && container.contains(target);
@@ -35,7 +45,10 @@ function textNodes(element: Element): globalThis.Text[] {
   const result: globalThis.Text[] = [];
   const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
   let node: Node | null;
-  while ((node = walker.nextNode())) result.push(node as globalThis.Text);
+  while ((node = walker.nextNode())) {
+    if ((node.parentElement?.closest('.peekmd-meta-disclosure'))) continue;
+    result.push(node as globalThis.Text);
+  }
   return result;
 }
 
@@ -95,14 +108,16 @@ export function domPointForSourceOffset(article: HTMLElement, source: Text, offs
   return null;
 }
 
-export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreviewProps>(function MarkdownPreview({ html }, ref) {
+export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreviewProps>(function MarkdownPreview({ html, meta }, ref) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const articleRef = useRef<HTMLElement>(null);
   const caretRef = useRef<HTMLDivElement>(null);
   const caretRangeRef = useRef<Range | null>(null);
   const cursorRef = useRef<PreviewCursor | null>(null);
   const previousHtmlRef = useRef(html);
+  const previousMetaRef = useRef(meta);
   const frameRef = useRef<number | null>(null);
+  const contentParts = meta ? splitAfterFirstHeading(html) : null;
 
   const hideCaret = () => {
     caretRangeRef.current = null;
@@ -198,12 +213,14 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreview
   }), []);
 
   useLayoutEffect(() => {
-    if (previousHtmlRef.current === html) return;
+    const metaChanged = previousMetaRef.current?.content !== meta?.content || previousMetaRef.current?.valid !== meta?.valid;
+    if (previousHtmlRef.current === html && !metaChanged) return;
     previousHtmlRef.current = html;
+    previousMetaRef.current = meta;
     if (!caretRangeRef.current && !cursorRef.current) return;
     window.getSelection()?.removeAllRanges();
     hideCaret();
-  }, [html]);
+  }, [html, meta]);
   useEffect(() => {
     const article = articleRef.current;
     const surface = surfaceRef.current;
@@ -287,7 +304,17 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreview
 
   return (
     <div className="peekmd-preview-surface" ref={surfaceRef}>
-      <article ref={articleRef} className="markdown-body" dangerouslySetInnerHTML={{ __html: html }} />
+      <article ref={articleRef} className="markdown-body">
+        {contentParts && meta ? (
+          <>
+            {contentParts.before && <div className="peekmd-preview-html" dangerouslySetInnerHTML={{ __html: contentParts.before }} />}
+            <MetaDisclosure meta={meta} />
+            {contentParts.after && <div className="peekmd-preview-html" dangerouslySetInnerHTML={{ __html: contentParts.after }} />}
+          </>
+        ) : (
+          <div dangerouslySetInnerHTML={{ __html: html }} />
+        )}
+      </article>
       <div ref={caretRef} className="peekmd-preview-caret" aria-hidden="true" hidden />
     </div>
   );
