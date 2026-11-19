@@ -16,6 +16,61 @@ struct OpenFilesPayload {
     paths: Vec<PathBuf>,
 }
 
+/// Keeps every webview on the bundled app. Rendered Markdown may contain raw
+/// HTML (`<meta http-equiv="refresh">`, `<form>`, ...) that could otherwise
+/// navigate a window to a remote page; links are opened externally by
+/// `src/lib/mdLinks.ts` and never navigate the webview.
+fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("navigation-guard")
+        .on_navigation(|_webview, url| {
+            let allowed = is_app_url(url);
+            if !allowed {
+                tracing::warn!(%url, "blocked webview navigation away from the app");
+            }
+            allowed
+        })
+        .build()
+}
+
+fn is_app_url(url: &url::Url) -> bool {
+    match url.scheme() {
+        "tauri" => url.host_str() == Some("localhost"),
+        "http" | "https" => {
+            url.host_str() == Some("tauri.localhost")
+                // `bun run tauri dev` serves the frontend from devUrl.
+                || (cfg!(debug_assertions) && url.host_str() == Some("localhost"))
+        }
+        "about" => url.path() == "blank",
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_app_url;
+
+    fn ok(s: &str) -> bool {
+        is_app_url(&url::Url::parse(s).unwrap())
+    }
+
+    #[test]
+    fn allows_bundled_app_urls() {
+        assert!(ok("tauri://localhost/index.html?detached=%2Fa.md"));
+        assert!(ok("tauri://localhost/#peekmd-heading"));
+        assert!(ok("http://tauri.localhost/"));
+        assert!(ok("about:blank"));
+    }
+
+    #[test]
+    fn blocks_external_urls() {
+        assert!(!ok("https://example.com/"));
+        assert!(!ok("http://tauri.localhost.example.com/"));
+        assert!(!ok("file:///etc/passwd"));
+        assert!(!ok("asset://localhost/%2FUsers%2Fa%2Fb.png"));
+        assert!(!ok("javascript:alert(1)"));
+    }
+}
+
 #[tauri::command]
 fn take_pending_paths(state: tauri::State<'_, PendingPaths>) -> Vec<PathBuf> {
     state.drain()
@@ -47,6 +102,7 @@ pub fn run() {
     }
 
     let builder = tauri::Builder::default()
+        .plugin(navigation_guard())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build());

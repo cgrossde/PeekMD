@@ -19,7 +19,6 @@ Frontend invocations use `invoke` from `@tauri-apps/api/core`.
 | `unwatch` | `path: PathBuf` | `Result<(), String>` | Unregister a path from `WatcherState`. Unwatches the parent directory when ref count reaches zero. |
 | `watch_images` | `md: PathBuf, images: Vec<PathBuf>` | `Result<(), String>` | Register local images referenced by a Markdown doc. When any image changes on disk a `file-changed` event is emitted for the owning `md` path, triggering a re-render so the new image bytes are picked up. |
 | `unwatch_images` | `md: PathBuf` | `Result<(), String>` | Unregister all images associated with a Markdown doc. Called on close. |
-| `reveal_in_finder` | `path: PathBuf` | `Result<(), String>` | Calls `tauri-plugin-opener`'s `reveal_item_in_dir`. |
 | `copy_path` | `path: String` | `Result<(), String>` | Writes plain text to clipboard via `tauri-plugin-clipboard-manager`. |
 | `copy_html` | `html: String` | `Result<(), String>` | Writes HTML to clipboard. Uses `ClipboardExt::write_html(&html, Some(&html))` — both the HTML representation and the plain-text fallback are set to the same string. |
 | `resolve_md_link` | `base: PathBuf, href: String` | `Option<PathBuf>` | Resolve a relative or absolute `.md` link against `base`. Strips `file://` prefix and URL fragments. Returns `None` for non-Markdown targets or paths that do not exist. |
@@ -107,7 +106,7 @@ pub struct Heading {
 
 | `action` | Effect in Sidebar.tsx |
 | --- | --- |
-| `reveal` | `invoke('reveal_in_finder', { path })` |
+| `reveal` | `revealInFinder(path)` (`src/lib/reveal.ts`, opener plugin `revealItemInDir`; not a Rust command) |
 | `copy_path` | `invoke('copy_path', { path })` |
 | `copy_html` | `invoke('copy_html', { html: doc.html })` |
 | `close` | `store.close(path)` |
@@ -139,17 +138,13 @@ Capabilities are declared in `src-tauri/capabilities/default.json` and apply to 
 | Permission | What it unlocks |
 | --- | --- |
 | `core:default` | Core IPC, window management, event emit/listen |
-| `core:event:default` | `emit` / `listen` for custom events |
-| `dialog:default` + `dialog:allow-open` | File open dialog (`⌘O`) via `tauri-plugin-dialog` |
-| `opener:default` + scoped `opener:allow-open-url` + `opener:allow-reveal-item-in-dir` | Open standard URLs, custom `*://*` app links, and reveal files via `tauri-plugin-opener` |
-| `window-state:default` | Persist and restore window bounds via `tauri-plugin-window-state` |
+| `dialog:allow-open` + `dialog:allow-save` | File open dialog (`⌘O`) and SVG save dialog via `tauri-plugin-dialog` (the first-launch default-handler prompt is shown from Rust and needs no permission) |
+| `opener:default` + scoped `opener:allow-open-url` + `opener:allow-reveal-item-in-dir` | Open standard URLs and custom `*://*` app links (including `file://`, used for document navigation), except `smb://*`, which is denied; reveal files via `tauri-plugin-opener` |
 | `store:default` | Read/write `state.json` via `tauri-plugin-store` |
 | `core:window:allow-destroy` | Allows the edit-session close guard to destroy the window only after a clean flush. |
-| `clipboard-manager:allow-write-text` | `copy_path` command (plain text) |
-| `clipboard-manager:allow-write-html` | `copy_html` command (HTML + plain text) |
 | `playwright:default` | Debug-only automation socket (compiled in always; only initialised in `#[cfg(debug_assertions)]` builds) |
 
-There is no `fs:*` permission and `tauri-plugin-fs` is not registered — `render_markdown` and `set_task_checked` use their opened Rust file handles for exact snapshot validation and one-byte writes. Custom Rust commands own this filesystem access; granting the webview generic filesystem capability would add no protection. There is likewise no `core:window:allow-set-title` — nothing calls `WebviewWindow::set_title`; the window title is always "PeekMD".
+There is no `fs:*` permission and `tauri-plugin-fs` is not registered — `render_markdown` and `set_task_checked` use their opened Rust file handles for exact snapshot validation and one-byte writes. Custom Rust commands own this filesystem access; granting the webview generic filesystem capability would add no protection. Plugins used only from Rust (`tauri-plugin-window-state`, `tauri-plugin-clipboard-manager` behind `copy_path` / `copy_html`) get no webview permission: capabilities gate IPC from the webview, not Rust calls. There is likewise no `core:window:allow-set-title` — nothing calls `WebviewWindow::set_title`; the window title is always "PeekMD".
 
 ## Content Security Policy and the asset protocol
 
@@ -162,13 +157,18 @@ There is no `fs:*` permission and `tauri-plugin-fs` is not registered — `rende
   "style-src": "'self' 'unsafe-inline'",
   "img-src": "'self' asset: http://asset.localhost data:",
   "font-src": "'self'",
-  "connect-src": "ipc: http://ipc.localhost"
+  "connect-src": "ipc: http://ipc.localhost",
+  "object-src": "'none'",
+  "base-uri": "'none'",
+  "form-action": "'none'"
 }
 ```
 
+`object-src`, `base-uri` and `form-action` close the raw-HTML vectors that `script-src` does not (`<object>`/`<embed>`, a `<base>` that rewrites relative URLs, `<form>` submission). A navigation guard plugin in `lib.rs` (`navigation_guard`) additionally refuses any webview navigation away from the bundled app (e.g. a `<meta http-equiv="refresh">` in a document); links are opened externally by `src/lib/mdLinks.ts`.
+
 `script-src: 'self'` with no `'unsafe-inline'` blocks inline `<script>` tags and inline event-handler attributes (`onerror=`, `onload=`, ...) at the WebView level. This matters because `render.unsafe = true` (see [rendering.md](rendering.md#unsafe--tagfilter)) allows raw HTML through comrak's `tagfilter`, which only blocklists tag names, not attributes — the CSP is the actual backstop for that residual injection vector. `style-src` needs `'unsafe-inline'` because React writes some inline `style` attributes directly (e.g. icon spacing in `Sidebar.tsx`).
 
-`app.security.assetProtocol` is enabled with `scope: ["$HOME/**/*"]` so `convertFileSrc` can serve local image files referenced by rendered Markdown — see [rendering.md](rendering.md#images) for how `src/lib/mdImages.ts` uses it.
+`app.security.assetProtocol` is enabled with scope `$HOME/**/*`, minus a deny list of credential stores (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, `~/Library/Keychains`, `~/Library/Cookies`), so `convertFileSrc` can serve local image files referenced by rendered Markdown — see [rendering.md](rendering.md#images) for how `src/lib/mdImages.ts` uses it.
 
 ### Unstable feature note
 

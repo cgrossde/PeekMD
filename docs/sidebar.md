@@ -110,7 +110,7 @@ Right-clicking a sidebar row invokes the `show_sidebar_context_menu` Tauri comma
 
 | Menu item | Action |
 | --- | --- |
-| Reveal in Finder | `invoke('reveal_in_finder', { path })` via `tauri-plugin-opener` |
+| Reveal in Finder | `revealInFinder(path)` (`src/lib/reveal.ts`, opener plugin `revealItemInDir`) |
 | Copy Path | `invoke('copy_path', { path })` — writes plain text to clipboard |
 | Copy as HTML | `invoke('copy_html', { html })` — writes the rendered HTML for this doc to clipboard (both plain and HTML representations via `tauri-plugin-clipboard-manager`) |
 | Close | `store.close(path)` |
@@ -129,7 +129,7 @@ This indirection exists because Tauri's `popup()` API requires a `Window` refere
 | Open/close/activate logic | Frontend (Zustand actions) |
 | File watcher registration | Rust (`watch_paths` / `unwatch` commands via `WatcherState`) |
 | Context menu popup | Rust (`show_sidebar_context_menu`, native `NSMenu`) |
-| Reveal in Finder | Rust (`reveal_in_finder` via `tauri-plugin-opener`) |
+| Reveal in Finder | Frontend (`revealInFinder` via `@tauri-apps/plugin-opener`) |
 | Copy Path | Rust (`copy_path` via `tauri-plugin-clipboard-manager`) |
 | Copy as HTML | Rust (`copy_html` via `tauri-plugin-clipboard-manager`) |
 | Filename disambiguation | Frontend (`disambiguator()` in `src/lib/paths.ts`) |

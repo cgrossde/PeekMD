@@ -23,5 +23,5 @@ To regenerate the CSS after touching either `.tmTheme` file or
 
 ```bash
 cd src-tauri
-cargo run --bin gen_syntect_css
+cargo run --features gen-css --bin gen_syntect_css
 ```

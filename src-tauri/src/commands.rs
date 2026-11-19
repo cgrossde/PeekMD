@@ -57,12 +57,6 @@ pub fn unwatch_images(
 }
 
 #[tauri::command]
-pub fn reveal_in_finder(app: AppHandle, path: PathBuf) -> Result<(), String> {
-    use tauri_plugin_opener::OpenerExt;
-    app.opener().reveal_item_in_dir(&path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub fn copy_path(app: AppHandle, path: String) -> Result<(), String> {
     use tauri_plugin_clipboard_manager::ClipboardExt;
     app.clipboard().write_text(path).map_err(|e| e.to_string())

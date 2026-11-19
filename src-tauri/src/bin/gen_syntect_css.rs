@@ -1,5 +1,5 @@
 //! Helper binary: regenerates the vendored syntect CSS files.
-//! Run: cargo run --bin gen_syntect_css  (from src-tauri/)
+//! Run: cargo run --features gen-css --bin gen_syntect_css  (from src-tauri/)
 //!
 //! Input files (see assets/themes/README.md):
 //!   assets/themes/GitHub-Light.tmTheme

@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "withGlobalTauri": true,
+    "withGlobalTauri": false,
     "windows": [
       {
         "label": "main",
@@ -32,13 +32,26 @@
         "style-src": "'self' 'unsafe-inline'",
         "img-src": "'self' asset: http://asset.localhost data:",
         "font-src": "'self'",
-        "connect-src": "ipc: http://ipc.localhost"
+        "connect-src": "ipc: http://ipc.localhost",
+        "object-src": "'none'",
+        "base-uri": "'none'",
+        "form-action": "'none'"
       },
       "assetProtocol": {
         "enable": true,
-        "scope": [
-          "$HOME/**/*"
-        ]
+        "scope": {
+          "allow": [
+            "$HOME/**/*"
+          ],
+          "deny": [
+            "$HOME/.ssh/**",
+            "$HOME/.aws/**",
+            "$HOME/.gnupg/**",
+            "$HOME/.config/gh/**",
+            "$HOME/Library/Keychains/**",
+            "$HOME/Library/Cookies/**"
+          ]
+        }
       }
     }
   },
@@ -58,7 +71,8 @@
     "macOS": {
       "minimumSystemVersion": "14.0",
       "infoPlist": "Info.plist",
-      "entitlements": "Entitlements.plist"
+      "entitlements": "Entitlements.plist",
+      "hardenedRuntime": true
     },
     "fileAssociations": [
       {

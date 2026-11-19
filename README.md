@@ -43,21 +43,11 @@ After install:
 - `open -a PeekMD /path/to/file.md` or double-click any `.md` file.
 - `peekmd-cli list` / `peekmd-cli open <path>` are available on `PATH` (used by the PeekMD agent skill).
 
-The cask installs an unsigned build and clears the Gatekeeper quarantine automatically. If macOS still blocks it, run:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/PeekMD.app
-```
-
 ### Download DMG
 
 Download the latest `.dmg` from [Releases](../../releases), drag **PeekMD.app** to `/Applications`.
 
-**First launch on an unsigned build:** right-click the app → **Open**, then confirm. Or remove quarantine from Terminal:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/PeekMD.app
-```
+Releases are signed with a Developer ID and notarized by Apple, so macOS opens them without a Gatekeeper warning.
 
 ## Open a file
 
@@ -100,7 +90,7 @@ bun run tauri dev
 # Open a specific file on launch
 bun run tauri dev -- -- /path/to/file.md
 
-# Production DMG (unsigned)
+# Local DMG (unsigned; releases are signed in CI via scripts/release-signed.sh)
 bash scripts/release-unsigned.sh
 ```
 

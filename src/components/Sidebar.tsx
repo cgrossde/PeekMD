@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
 import { useStore } from '../store';
 import { SidebarRow } from './SidebarRow';
+import { revealInFinder } from '../lib/reveal';
 import { timeAgo } from '../lib/timeAgo';
 import { stemName, parentFolder } from '../lib/paths';
 import { FileText, Clock } from 'lucide-react';
@@ -24,7 +25,7 @@ export function Sidebar({ onResizeHandleMouseDown }: { onResizeHandleMouseDown: 
       const st = useStore.getState();
       switch (action) {
         case 'reveal':
-          void invoke('reveal_in_finder', { path });
+          void revealInFinder(path);
           break;
         case 'copy_path':
           void invoke('copy_path', { path });

@@ -103,7 +103,7 @@ The upstream `github-markdown-css` stylesheet. It scopes its light and dark vari
 
 ### `src/vendor/syntect-github-light.css` and `syntect-github-dark.css`
 
-Generated syntax-highlight stylesheets produced by a Rust build script (`cargo run --bin gen_syntect_css`). Do not edit them by hand.
+Generated syntax-highlight stylesheets produced by a Rust build script (`cargo run --features gen-css --bin gen_syntect_css`). Do not edit them by hand.
 
 - `syntect-github-dark.css` scopes all rules under `[data-theme="dark"] .markdown-body`.
 - `syntect-github-light.css` scopes all rules under `:root:not([data-theme="dark"]) .markdown-body`.

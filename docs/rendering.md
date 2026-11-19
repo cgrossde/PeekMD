@@ -105,7 +105,14 @@ This requires Tauri's asset protocol, configured in `tauri.conf.json`:
 
 ```json
 "security": {
-  "assetProtocol": { "enable": true, "scope": ["$HOME/**/*"] }
+  "assetProtocol": {
+    "enable": true,
+    "scope": {
+      "allow": ["$HOME/**/*"],
+      "deny": ["$HOME/.ssh/**", "$HOME/.aws/**", "$HOME/.gnupg/**", "$HOME/.config/gh/**",
+               "$HOME/Library/Keychains/**", "$HOME/Library/Cookies/**"]
+    }
+  }
 }
 ```
 

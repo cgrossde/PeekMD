@@ -20,11 +20,6 @@ cask "peekmd" do
   app "PeekMD.app"
   binary "#{appdir}/PeekMD.app/Contents/MacOS/peekmd-cli"
 
-  postflight do
-    system_command "/usr/bin/xattr",
-                   args: ["-dr", "com.apple.quarantine", "#{appdir}/PeekMD.app"]
-  end
-
   zap trash: [
     "~/Library/Application Support/com.peekmd.desktop",
     "~/Library/Caches/com.peekmd.desktop",

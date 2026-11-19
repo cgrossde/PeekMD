@@ -48,7 +48,7 @@ Fixed commands, always present (some conditionally on an active document):
 | Print / Save as PDF | Triggers `window.print()` |
 | Find in document | Opens the find bar |
 | Force re-render | Re-renders the active document from disk |
-| Reveal in Finder | Calls the `reveal_in_finder` Tauri command — only shown when a document is active |
+| Reveal in Finder | Calls `revealInFinder` (opener plugin `revealItemInDir`) — only shown when a document is active |
 | Copy path | Calls the `copy_path` Tauri command — only shown when a document is active |
 
 ---

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { revealInFinder } from '../lib/reveal';
 import { useStore } from '../store';
 import { score } from '../lib/fuzzy';
 import { stemName } from '../lib/paths';
@@ -60,7 +61,7 @@ export function CommandPalette() {
     { id: 'cmd:find', label: 'Find in document', kind: 'cmd', run: () => { useStore.getState().setFind(true); setPalette(false); } },
     { id: 'cmd:refresh', label: 'Force re-render', kind: 'cmd', run: () => { void refreshActive(); setPalette(false); } },
     ...(activeDoc ? [
-      { id: 'cmd:reveal', label: 'Reveal in Finder', kind: 'cmd' as const, run: () => { void invoke('reveal_in_finder', { path: activeDoc.path }); setPalette(false); } },
+      { id: 'cmd:reveal', label: 'Reveal in Finder', kind: 'cmd' as const, run: () => { void revealInFinder(activeDoc.path); setPalette(false); } },
       { id: 'cmd:copypath', label: 'Copy path', kind: 'cmd' as const, run: () => { void invoke('copy_path', { path: activeDoc.path }); setPalette(false); } },
     ] : []),
   ];
