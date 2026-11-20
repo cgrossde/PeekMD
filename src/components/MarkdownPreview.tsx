@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef } from 'react';
 import type { Text } from '@codemirror/state';
 import { parseSourceRange, sourceOffsetToRenderedOffset, sourceRangeToOffsets, type PreviewCursor, type SourcePositionRange } from '../lib/sourcePosition';
 import type { DocumentMeta } from '../store';
@@ -117,7 +117,20 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreview
   const previousHtmlRef = useRef(html);
   const previousMetaRef = useRef(meta);
   const frameRef = useRef<number | null>(null);
-  const contentParts = meta ? splitAfterFirstHeading(html) : null;
+  // React 19 writes innerHTML again whenever the `dangerouslySetInnerHTML`
+  // object changes identity, even with the same string. That throws away
+  // everything done to the rendered DOM afterwards (resolved image URLs,
+  // hydrated Mermaid diagrams), so the objects must be stable per `html`.
+  const hasMeta = Boolean(meta);
+  const inner = useMemo(() => {
+    if (!hasMeta) return { whole: { __html: html }, before: null, after: null };
+    const parts = splitAfterFirstHeading(html);
+    return {
+      whole: null,
+      before: parts.before ? { __html: parts.before } : null,
+      after: parts.after ? { __html: parts.after } : null,
+    };
+  }, [html, hasMeta]);
 
   const hideCaret = () => {
     caretRangeRef.current = null;
@@ -305,14 +318,14 @@ export const MarkdownPreview = forwardRef<MarkdownPreviewHandle, MarkdownPreview
   return (
     <div className="peekmd-preview-surface" ref={surfaceRef}>
       <article ref={articleRef} className="markdown-body">
-        {contentParts && meta ? (
+        {meta && !inner.whole ? (
           <>
-            {contentParts.before && <div className="peekmd-preview-html" dangerouslySetInnerHTML={{ __html: contentParts.before }} />}
+            {inner.before && <div className="peekmd-preview-html" dangerouslySetInnerHTML={inner.before} />}
             <MetaDisclosure meta={meta} />
-            {contentParts.after && <div className="peekmd-preview-html" dangerouslySetInnerHTML={{ __html: contentParts.after }} />}
+            {inner.after && <div className="peekmd-preview-html" dangerouslySetInnerHTML={inner.after} />}
           </>
         ) : (
-          <div dangerouslySetInnerHTML={{ __html: html }} />
+          <div dangerouslySetInnerHTML={inner.whole ?? { __html: html }} />
         )}
       </article>
       <div ref={caretRef} className="peekmd-preview-caret" aria-hidden="true" hidden />

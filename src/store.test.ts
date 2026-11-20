@@ -201,6 +201,49 @@ describe('navigation history', () => {
   });
 });
 
+describe('opens from outside', () => {
+  const persisted = (openDocs: string[], activeDoc: string) => ({
+    version: 2, openDocs, openedAt: {}, activeDoc, rightPaneDoc: null, recentlyViewed: [], scrollPositions: {},
+    ui: { sidebarVisible: true, tocVisible: true, themeOverride: null },
+  });
+
+  it('shows the opened document and puts it first when it races session restore', async () => {
+    loadState.mockResolvedValue(persisted(['/docs/a.md', '/docs/b.md', '/docs/c.md'], '/docs/a.md'));
+
+    const hydrate = useStore.getState().hydrateFromDisk();
+    const open = useStore.getState().openMany(['/docs/c.md']);
+    await Promise.all([hydrate, open]);
+
+    expect(useStore.getState().activeDocId).toBe('/docs/c.md');
+    expect(useStore.getState().openDocs.map(d => d.path)).toEqual(['/docs/c.md', '/docs/a.md', '/docs/b.md']);
+  });
+
+  it('moves an already open document to the top', async () => {
+    await useStore.getState().openFile('/docs/a.md');
+    await useStore.getState().openFile('/docs/b.md');
+    await useStore.getState().openFile('/docs/c.md');
+
+    await useStore.getState().openMany(['/docs/a.md']);
+
+    expect(useStore.getState().activeDocId).toBe('/docs/a.md');
+    expect(useStore.getState().openDocs.map(d => d.path)).toEqual(['/docs/a.md', '/docs/c.md', '/docs/b.md']);
+  });
+
+  it('lets the last request win when two opens overlap', async () => {
+    const first = useStore.getState().openMany(['/docs/a.md']);
+    const second = useStore.getState().openMany(['/docs/b.md']);
+    await Promise.all([first, second]);
+
+    expect(useStore.getState().activeDocId).toBe('/docs/b.md');
+    expect(useStore.getState().openDocs.map(d => d.path)).toEqual(['/docs/b.md', '/docs/a.md']);
+  });
+
+  it('does not add the same path twice when two opens overlap', async () => {
+    await Promise.all([useStore.getState().openFile('/docs/a.md'), useStore.getState().openFile('/docs/a.md')]);
+    expect(useStore.getState().openDocs.map(d => d.path)).toEqual(['/docs/a.md']);
+  });
+});
+
 describe('close / closeOthers', () => {
   it('activates the next doc in the list when closing the active middle doc', async () => {
     await useStore.getState().openFile('/docs/a.md');

@@ -14,7 +14,7 @@ The sidebar has two sections: **Open Documents** (top) and **Recently Viewed** (
 ```
 
 ## Open Documents section
-Newly opened documents are prepended to this list, so the most recently opened document appears first. Each row shows how long ago it was opened on the right, with the parent folder below the document title when needed. Activating a document that is already open does not reorder the list. Session restore preserves the persisted display order.
+Newly opened documents are prepended to this list, so the most recently opened document appears first. Each row shows how long ago it was opened on the right, with the parent folder below the document title when needed. Activating a document that is already open from inside the app (sidebar, links, history) does not reorder the list. A document opened from outside (Finder, `open`, the CLI) always becomes the active document and moves to the top, also when it was already open. Session restore and outside opens run one after another, so the last request wins. Session restore preserves the persisted display order.
 
 Each row is rendered by `src/components/SidebarRow.tsx`. The row state comes from the `Doc` type in `src/store.ts`:
 

@@ -14,6 +14,22 @@ function container(html: string): HTMLElement {
 describe('resolveMarkdownImages', () => {
   beforeEach(() => convertFileSrc.mockClear());
 
+  it('rewrites <picture> source srcset candidates and keeps their descriptors', () => {
+    const el = container('<picture><source srcset="a/dark.png, a/dark@2x.png 2x"><img src="a/light.png"></picture>');
+    resolveMarkdownImages(el, '/Users/alice/notes/README.md');
+    expect(el.querySelector('source')!.getAttribute('srcset')).toBe(
+      'asset://localhost/%2FUsers%2Falice%2Fnotes%2Fa%2Fdark.png, asset://localhost/%2FUsers%2Falice%2Fnotes%2Fa%2Fdark%402x.png 2x',
+    );
+    expect(el.querySelector('img')!.getAttribute('src')).toBe('asset://localhost/%2FUsers%2Falice%2Fnotes%2Fa%2Flight.png');
+  });
+
+  it('leaves remote srcset candidates untouched', () => {
+    const el = container('<img src="https://example.com/a.png" srcset="https://example.com/a.png 1x">');
+    resolveMarkdownImages(el, '/Users/alice/notes/README.md');
+    expect(el.querySelector('img')!.getAttribute('srcset')).toBe('https://example.com/a.png 1x');
+    expect(convertFileSrc).not.toHaveBeenCalled();
+  });
+
   it('rewrites a relative image path against the document directory', () => {
     const el = container('<img src="./img/shot.png">');
     resolveMarkdownImages(el, '/Users/alice/notes/README.md');

@@ -57,6 +57,16 @@ let editTimer: ReturnType<typeof setTimeout> | undefined;
 let editSaveInFlight: Promise<boolean> | null = null;
 let reconcilePending = false;
 let navigationInFlight: Promise<boolean> | null = null;
+// Session restore and opens requested from outside (Finder, CLI, open-files)
+// run one after another. Run concurrently they interleave at every await, so
+// an older request could finish last and take the view away from the document
+// that was just opened, or the same path could be added twice.
+let openQueue: Promise<unknown> = Promise.resolve();
+function enqueueOpen<T>(task: () => Promise<T>): Promise<T> {
+  const run = openQueue.then(task, task);
+  openQueue = run.catch(() => {});
+  return run;
+}
 
 function isOlderThanMinimumOpenAge(openedAt: string, now: number): boolean {
   return now - new Date(openedAt).getTime() > MIN_OPEN_AGE_MS;
@@ -192,6 +202,8 @@ export const useStore = create<StoreState>()((set, get) => {
       set(s => ({ recentlyViewed: s.recentlyViewed.filter(r => r.path !== path) }));
       if (openDocs.find(d => d.path === path)) { if (doActivate) await get().activate(path, { pushHistory }); return; }
       const r = await invoke<RenderedDoc>('render_markdown', { path });
+      // Another open of the same path may have finished during the render.
+      if (get().openDocs.some(d => d.path === path)) { if (doActivate) await get().activate(path, { pushHistory }); return; }
       const doc: Doc = { path, title: r.title, html: r.html, meta: r.meta, headings: r.headings, mtime: r.mtime, revision: r.revision, openedAt: options?.openedAt ?? new Date().toISOString(), dirty: false, removed: false };
       set(s => ({ openDocs: options?.prepend === false ? [...s.openDocs, doc] : [doc, ...s.openDocs] }));
       if (options?.prune !== false) get().pruneOpenDocuments();
@@ -200,15 +212,20 @@ export const useStore = create<StoreState>()((set, get) => {
       if (doActivate) await get().activate(path, { pushHistory });
     },
 
-    openMany: async (paths) => {
+    openMany: paths => enqueueOpen(async () => {
       if (paths.length === 0) return;
       const errors: string[] = [];
       for (const p of paths) { try { await get().openFile(p); } catch (err) { errors.push(`${p.split('/').pop() ?? p}: ${err instanceof Error ? err.message : String(err)}`); } }
       if (errors.length > 0) set({ lastError: errors.join('\n') });
-      const active = get().activeDocId;
       const opened = paths.filter(p => get().openDocs.some(d => d.path === p));
-      if (opened.length > 0 && !opened.includes(active ?? '')) await get().activate(opened[0]);
-    },
+      if (opened.length > 0 && !opened.includes(get().activeDocId ?? '')) await get().activate(opened[0]);
+      // A document opened from outside is the one on screen and the first in
+      // the list, also when it was already open further down.
+      const active = get().activeDocId;
+      if (!active || !opened.includes(active)) return;
+      const order = [active, ...opened.filter(p => p !== active).reverse()];
+      set(s => ({ openDocs: [...order.flatMap(p => s.openDocs.filter(d => d.path === p).slice(0, 1)), ...s.openDocs.filter(d => !order.includes(d.path))] }));
+    }),
 
     activate: async (id, opts) => {
       if (get().activeDocId !== id && get().editSession?.path === get().activeDocId && !(await get().finishEditing())) return false;
@@ -438,7 +455,7 @@ export const useStore = create<StoreState>()((set, get) => {
     clearError: () => set({ lastError: null }),
     setInfoToast: msg => set({ infoToast: msg }),
 
-    hydrateFromDisk: async () => {
+    hydrateFromDisk: () => enqueueOpen(async () => {
       const persisted = await loadState();
       if (!persisted) return {};
       set(s => ({ ui: { ...s.ui, ...persisted.ui, paletteOpen: false, findOpen: false, shortcutsOpen: false }, recentlyViewed: persisted.recentlyViewed }));
@@ -451,6 +468,6 @@ export const useStore = create<StoreState>()((set, get) => {
       set({ navBack: [], navForward: [] });
       if (persisted.openDocs.length > validPaths.length) set({ infoToast: `${persisted.openDocs.length - validPaths.length} file(s) missing from last session` });
       return persisted.scrollPositions;
-    },
+    }),
   };
 });
