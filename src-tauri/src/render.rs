@@ -294,59 +294,91 @@ fn extract_local_images<'a>(root: &'a AstNode<'a>, md_path: &Path) -> Vec<String
     images
 }
 
-/// Rewrites `src="<local-path>"` attributes in rendered HTML to append
-/// `?v=<mtime>` so WKWebView (which aggressively caches by URL) is forced
-/// to re-fetch the image bytes when the file changes on disk.
+/// Rewrites local image URLs in rendered HTML to append `?v=<mtime>` so
+/// WKWebView (which aggressively caches by URL) is forced to re-fetch the
+/// image bytes when the file changes on disk. Covers `src="..."` and every
+/// candidate of `srcset="..."` (raw-HTML `<picture>` blocks).
 ///
-/// Only local paths are touched — `http://`, `https://`, and `data:` srcs
+/// Only local paths are touched — `http://`, `https://`, and `data:` URLs
 /// are left as-is. The rewrite is a plain string scan; no HTML parser needed
-/// because comrak produces predictable `<img src="...">` output.
-fn stamp_image_srcs(html: &mut String, md_path: &Path) {
+/// because comrak produces predictable attribute output.
+///
+/// Returns the absolute paths of the files it stamped, so images that only
+/// appear in raw HTML are watched like Markdown images.
+fn stamp_image_srcs(html: &mut String, md_path: &Path) -> Vec<String> {
+    let mut stamped = Vec::new();
     let base = match md_path.parent() {
         Some(p) => p.to_path_buf(),
-        None => return,
+        None => return stamped,
     };
-    let mut out = String::with_capacity(html.len() + 64);
-    let mut rest = html.as_str();
-    while let Some(pos) = rest.find(" src=\"") {
-        out.push_str(&rest[..pos + 6]); // up to and including src="
-        rest = &rest[pos + 6..];
-        let end = match rest.find('"') {
-            Some(e) => e,
-            None => break,
-        };
-        let raw_src = &rest[..end];
-        rest = &rest[end..]; // keep the closing quote in rest
-        // Skip remote / data URIs unchanged
-        if raw_src.starts_with("http://") || raw_src.starts_with("https://")
-            || raw_src.starts_with("data:") || raw_src.starts_with('#')
-        {
-            out.push_str(raw_src);
-            continue;
+    for (attr, is_set) in [(" src=\"", false), (" srcset=\"", true)] {
+        let mut out = String::with_capacity(html.len() + 64);
+        let mut rest = html.as_str();
+        while let Some(pos) = rest.find(attr) {
+            out.push_str(&rest[..pos + attr.len()]); // up to and including the opening quote
+            rest = &rest[pos + attr.len()..];
+            let end = match rest.find('"') {
+                Some(e) => e,
+                None => break,
+            };
+            let value = &rest[..end];
+            rest = &rest[end..]; // keep the closing quote in rest
+            if is_set {
+                // `url [descriptor], url [descriptor]`
+                let candidates: Vec<String> = value
+                    .split(", ")
+                    .map(|candidate| {
+                        let candidate = candidate.trim();
+                        match candidate.split_once(char::is_whitespace) {
+                            Some((url, descriptor)) => {
+                                format!("{} {}", stamp_url(url, &base, &mut stamped), descriptor.trim())
+                            }
+                            None => stamp_url(candidate, &base, &mut stamped),
+                        }
+                    })
+                    .collect();
+                out.push_str(&candidates.join(", "));
+            } else {
+                out.push_str(&stamp_url(value, &base, &mut stamped));
+            }
         }
-        // Strip any existing query/fragment before resolving
-        let file_part = raw_src.split(&['?', '#'][..]).next().unwrap_or(raw_src);
-        if file_part.is_empty() { out.push_str(raw_src); continue; }
-        let abs = if std::path::Path::new(file_part).is_absolute() {
-            std::path::PathBuf::from(file_part)
-        } else {
-            base.join(file_part)
-        };
-        let mtime = std::fs::metadata(&abs)
-            .and_then(|m| m.modified())
-            .map(|t| t.duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0))
-            .unwrap_or(0);
-        if mtime > 0 {
-            out.push_str(raw_src);
-            out.push_str(&format!("?v={mtime}"));
-        } else {
-            out.push_str(raw_src);
-        }
-    }
-    if !out.is_empty() {
         out.push_str(rest);
         *html = out;
     }
+    stamped
+}
+
+/// Appends `?v=<mtime>` to one local image URL; anything else is returned as-is.
+fn stamp_url(raw: &str, base: &Path, stamped: &mut Vec<String>) -> String {
+    if raw.starts_with("http://") || raw.starts_with("https://")
+        || raw.starts_with("data:") || raw.starts_with('#')
+    {
+        return raw.to_owned();
+    }
+    // Strip any existing query/fragment before resolving
+    let file_part = raw.split(&['?', '#'][..]).next().unwrap_or(raw);
+    if file_part.is_empty() {
+        return raw.to_owned();
+    }
+    let abs = if Path::new(file_part).is_absolute() {
+        PathBuf::from(file_part)
+    } else {
+        base.join(file_part)
+    };
+    let mtime = std::fs::metadata(&abs)
+        .and_then(|m| m.modified())
+        .map(|t| t.duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0))
+        .unwrap_or(0);
+    if mtime == 0 {
+        return raw.to_owned();
+    }
+    if let Ok(canon) = abs.canonicalize() {
+        let path = canon.to_string_lossy().into_owned();
+        if !stamped.contains(&path) {
+            stamped.push(path);
+        }
+    }
+    format!("{raw}?v={mtime}")
 }
 
 fn file_id(metadata: &std::fs::Metadata) -> String {
@@ -395,11 +427,15 @@ fn render_source(path: &Path, snapshot: &FileSnapshot, source: &str) -> Result<R
     let root = parse_document(&arena, &source, &opts);
     let headings = extract_headings(root, &opts);
     let meta = extract_meta(root);
-    let local_images = extract_local_images(root, path);
+    let mut local_images = extract_local_images(root, path);
     let mut html = String::new();
     InteractiveHtmlFormatter::format_document_with_plugins(root, &opts, &mut html, &plugins)
         .expect("formatting HTML into an in-memory buffer should never fail");
-    stamp_image_srcs(&mut html, path);
+    for image in stamp_image_srcs(&mut html, path) {
+        if !local_images.contains(&image) {
+            local_images.push(image);
+        }
+    }
 
     tracing::info!(
         target: "peekmd::render",
@@ -994,6 +1030,25 @@ mod tests {
         stamp_image_srcs(&mut html, &md_path);
         assert!(html.contains("?v="), "mtime stamp missing: {html}");
         assert!(!html.contains("?v=0"), "mtime should be non-zero: {html}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn stamp_image_srcs_stamps_srcset_candidates_and_reports_them() {
+        let dir = std::env::temp_dir().join(format!("peekmd-stamp-srcset-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["dark.png", "dark2.png", "light.png"] {
+            std::fs::write(dir.join(name), b"px").unwrap();
+        }
+        let md_path = dir.join("doc.md");
+        let mut html = String::from(
+            "<picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"dark.png, dark2.png 2x, https://example.com/x.png 3x\"><img alt=\"x\" src=\"light.png\"></picture>",
+        );
+        let stamped = stamp_image_srcs(&mut html, &md_path);
+        assert_eq!(html.matches("?v=").count(), 3, "{html}");
+        assert!(html.contains(" 2x, https://example.com/x.png 3x\""), "{html}");
+        assert!(html.contains("dark.png?v="), "{html}");
+        assert_eq!(stamped.len(), 3, "{stamped:?}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

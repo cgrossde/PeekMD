@@ -99,7 +99,7 @@ This attribute is the foundation of the scroll-to-change algorithm in `src/lib/s
 The comparison is purely DOM-level — no second Rust pass, no source line map. The `data-sourcepos` attribute carries the mapping from the single comrak invocation.
 
 ## Images
-comrak emits `<img src="...">` from the Markdown source. Rust stamps local image URLs with the source file's current image mtime during rendering; `src/lib/mdImages.ts` then resolves local paths to Tauri asset URLs after each render. Remote and data URLs remain unchanged. `srcset` candidates on `<source>` and `<img>` (raw-HTML `<picture>` blocks) are resolved the same way, but are not mtime-stamped.
+comrak emits `<img src="...">` from the Markdown source. Rust stamps local image URLs with the source file's current image mtime during rendering; `src/lib/mdImages.ts` then resolves local paths to Tauri asset URLs after each render. Remote and data URLs remain unchanged. `srcset` candidates on `<source>` and `<img>` (raw-HTML `<picture>` blocks) are stamped and resolved the same way. Local images that only appear in raw HTML are added to `local_images`, so they are watched like Markdown images.
 
 The resolved URLs live only in the DOM. `MarkdownPreview` therefore keeps its `dangerouslySetInnerHTML` objects stable per `html`: React 19 writes `innerHTML` again whenever that object changes identity, which would reset the images to their unresolved paths.
 
